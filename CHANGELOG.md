@@ -1,5 +1,11 @@
 # use-mcp-react
 
+## 0.1.1
+
+### Patch Changes
+
+- 546ce7c: Fix npm README image rendering.
+
 ## 0.1.0
 
 ### Minor Changes

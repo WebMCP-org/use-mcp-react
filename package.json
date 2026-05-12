@@ -1,6 +1,6 @@
 {
   "name": "use-mcp-react",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "React hooks for connecting browser apps to remote MCP servers.",
   "keywords": [
     "hooks",
