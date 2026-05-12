@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 
 const allowedPaths = new Set([
+  "assets/use-mcp-react-card.svg",
   "CODE_OF_CONDUCT.md",
   "CONTRIBUTING.md",
   "LICENSE",

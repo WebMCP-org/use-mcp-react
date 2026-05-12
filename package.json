@@ -19,6 +19,7 @@
     "url": "git+https://github.com/WebMCP-org/use-mcp-react.git"
   },
   "files": [
+    "assets",
     "CODE_OF_CONDUCT.md",
     "CONTRIBUTING.md",
     "dist",

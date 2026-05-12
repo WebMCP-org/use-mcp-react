@@ -24,7 +24,7 @@ OAuth discovery, DCR, token exchange, and token refresh still run directly in th
 
 The deployed playground ships that proxy server route next to the React SPA. This is the pattern to copy when a server's MCP transport endpoint does not expose browser CORS. Stripe is the clearest preset: OAuth still happens in the browser, but Stripe's MCP transport POSTs go through `/api/mcp-proxy`.
 
-The playground also serves a Client ID Metadata Document at `/.well-known/oauth-client-metadata.json`. Turn the CIMD toggle on to pass that URL as `oauth.clientMetadataUrl`, so authorization servers that advertise Client ID Metadata Document support can use the document URL as the public OAuth client id instead of dynamic registration. Turn it off to compare the fallback registration behavior.
+The playground also serves a Client ID Metadata Document at `/.well-known/oauth-client-metadata.json`. The document includes `client_id` equal to that full metadata URL, which authorization servers require when they validate URL-based client ids. Turn the CIMD toggle on to pass that URL as `oauth.clientMetadataUrl`, so authorization servers that advertise Client ID Metadata Document support can use the document URL as the public OAuth client id instead of dynamic registration. Turn it off to compare the fallback registration behavior.
 
 | Preset               | URL                                | Expected verdict                                                                      |
 | -------------------- | ---------------------------------- | ------------------------------------------------------------------------------------- |
@@ -40,9 +40,9 @@ The OAuth callback handler is mounted at `/oauth/callback`.
 
 The collapsed "Override detected auth (advanced)" section forces a specific `authMode` (Auto / Bearer / Manual OAuth client id) — useful for testing against a server whose metadata you already know, or for supplying a bearer token up front so the hook skips OAuth discovery.
 
-The remote presets use transport proxy mode. The browser still owns OAuth; the local dev proxy only forwards MCP transport `POST` requests to the target in `x-mcp-target-url`.
+The remote presets use transport proxy mode. The browser still owns OAuth; the local dev proxy forwards requests to the target in `x-mcp-target-url`.
 
-The playground proxy is upstream-agnostic and dynamic. It accepts public `https:` MCP targets, blocks local/private targets, requires stateless JSON-RPC `POST` bodies, and forwards only MCP-relevant headers.
+The playground proxy is upstream-agnostic and dynamic. The UI only enables it for public `https:` MCP targets, and the Worker is otherwise a pass-through demo route.
 
 The proxy route is app-owned configuration, not end-user input. The playground passes `/api/mcp-proxy` for public HTTPS MCP URLs and leaves local or non-HTTPS development URLs direct.
 

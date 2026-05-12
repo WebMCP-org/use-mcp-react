@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="320" viewBox="0 0 960 320" role="img" aria-labelledby="title desc">
+  <title id="title">use-mcp-react</title>
+  <desc id="desc">A black and green project card for the use-mcp-react package.</desc>
+  <defs>
+    <linearGradient id="panel" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#050806"/>
+      <stop offset="1" stop-color="#0b1610"/>
+    </linearGradient>
+    <linearGradient id="line" x1="0" x2="1" y1="0" y2="0">
+      <stop offset="0" stop-color="#19e68c"/>
+      <stop offset="1" stop-color="#98ffbd"/>
+    </linearGradient>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <rect width="960" height="320" rx="28" fill="url(#panel)"/>
+  <rect x="1.5" y="1.5" width="957" height="317" rx="26.5" fill="none" stroke="#164a33" stroke-width="3"/>
+  <path d="M80 230 C156 126 235 126 312 230 S468 334 548 230 S704 126 780 230" fill="none" stroke="#103522" stroke-width="22" stroke-linecap="round"/>
+  <path d="M80 230 C156 126 235 126 312 230 S468 334 548 230 S704 126 780 230" fill="none" stroke="url(#line)" stroke-width="9" stroke-linecap="round" filter="url(#glow)"/>
+  <g transform="translate(84 66)">
+    <rect x="0" y="0" width="116" height="116" rx="24" fill="#0d1f16" stroke="#25d987" stroke-width="4"/>
+    <path d="M30 77 V39 H47 L58 60 L69 39 H86 V77 H74 V55 L63 77 H53 L42 55 V77 Z" fill="#baffd3"/>
+  </g>
+  <text x="238" y="122" fill="#f4fff8" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="58" font-weight="760">use-mcp-react</text>
+  <text x="241" y="172" fill="#9beebc" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="25" font-weight="520">React hooks for remote MCP servers</text>
+  <g fill="none" stroke="#2bf094" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M802 92 H852 C872 92 886 106 886 126 V176 C886 196 872 210 852 210 H802 C782 210 768 196 768 176 V126 C768 106 782 92 802 92 Z"/>
+    <path d="M805 135 H849"/>
+    <path d="M805 167 H849"/>
+    <path d="M731 151 H768"/>
+    <path d="M886 151 H923"/>
+    <path d="M827 55 V92"/>
+    <path d="M827 210 V247"/>
+  </g>
+</svg>

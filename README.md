@@ -1,8 +1,29 @@
-# use-mcp-react
+<p align="center">
+  <img alt="use-mcp-react" src="./assets/use-mcp-react-card.svg" width="560">
+</p>
 
-React hooks for connecting browser apps to remote MCP servers.
+<h1 align="center">use-mcp-react</h1>
 
-[Live playground](https://use-mcp-react-playground.alexmnahas.workers.dev)
+<p align="center">
+  React hooks for connecting browser apps to remote MCP servers.
+</p>
+
+<p align="center">
+  <a href="https://www.npmjs.com/package/use-mcp-react"><img alt="npm package" src="https://img.shields.io/badge/npm-use--mcp--react-19e68c?logo=npm&logoColor=white"></a>
+  <img alt="Version 0.0.0" src="https://img.shields.io/badge/version-0.0.0-19e68c">
+  <a href="https://github.com/WebMCP-org/use-mcp-react/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/WebMCP-org/use-mcp-react/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/WebMCP-org/use-mcp-react/actions/workflows/react-compat.yml"><img alt="React Compatibility" src="https://github.com/WebMCP-org/use-mcp-react/actions/workflows/react-compat.yml/badge.svg"></a>
+  <a href="https://github.com/WebMCP-org/use-mcp-react/actions/workflows/codeql.yml"><img alt="CodeQL" src="https://github.com/WebMCP-org/use-mcp-react/actions/workflows/codeql.yml/badge.svg"></a>
+  <img alt="TypeScript types included" src="https://img.shields.io/badge/types-included-19e68c?logo=typescript&logoColor=white">
+  <a href="https://github.com/WebMCP-org/use-mcp-react/blob/main/LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-19e68c"></a>
+  <img alt="React 18 and 19" src="https://img.shields.io/badge/react-18%20%7C%2019-19e68c?logo=react&logoColor=white">
+  <img alt="Node.js 18 or newer" src="https://img.shields.io/badge/node-%3E%3D18-19e68c?logo=node.js&logoColor=white">
+  <img alt="MCP ready" src="https://img.shields.io/badge/MCP-ready-19e68c">
+</p>
+
+<p align="center">
+  <a href="https://use-mcp-react-playground.alexmnahas.workers.dev">Live playground</a>
+</p>
 
 `use-mcp-react` is for product UIs, playgrounds, and developer tools that accept an MCP server URL at runtime. The hook probes the server with the real MCP TypeScript SDK, classifies the auth requirement, and returns the exact UI branch your React app should render next.
 
@@ -140,6 +161,7 @@ const mcp = useMcp({
 ```
 
 When the authorization server advertises URL-based client identifiers, the hook can use this URL as the public client id.
+The hosted document must include a `client_id` property whose value exactly matches the document URL.
 
 ### Manually Registered Public Client
 
@@ -381,7 +403,7 @@ The playground includes presets for unauthenticated, OAuth, bearer-token, and ma
 
 The deployed playground ships its React SPA and `/api/mcp-proxy` backend together. The proxy exists for servers such as Stripe whose MCP transport endpoint does not expose browser CORS. See [`playground/worker/index.ts`](https://github.com/WebMCP-org/use-mcp-react/blob/main/playground/worker/index.ts) and [transport proxy mode](https://github.com/WebMCP-org/use-mcp-react/blob/main/docs/reference/transport-proxy-mode.md).
 
-It also serves a Client ID Metadata Document at `/.well-known/oauth-client-metadata.json`. Use the playground CIMD toggle to pass that URL as `oauth.clientMetadataUrl` and demonstrate URL-based public OAuth client ids.
+It also serves a Client ID Metadata Document at `/.well-known/oauth-client-metadata.json`. The document includes `client_id` equal to that full URL, which authorization servers require when they validate URL-based client ids. Use the playground CIMD toggle to pass that URL as `oauth.clientMetadataUrl` and demonstrate URL-based public OAuth client ids.
 
 ## Development
 
