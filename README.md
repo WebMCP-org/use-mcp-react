@@ -1,31 +1,59 @@
-# use-mcp-react
+<p align="center">
+  <img alt="use-mcp-react" src="./assets/use-mcp-react-card.svg" width="560">
+</p>
 
-React hooks for connecting browser apps to remote MCP servers.
+<h1 align="center">use-mcp-react</h1>
 
-`use-mcp-react` is for browser apps where the MCP server URL may be entered at runtime and the app may not know ahead of time whether the server uses no auth, OAuth, a manually registered OAuth client, or an API-key style bearer token.
+<p align="center">
+  React hooks for connecting browser apps to remote MCP servers.
+</p>
 
-> Status: this repo is pre-release. The browser MCP/OAuth hook and test harness are implemented, but the API may still change before the first stable release.
+<p align="center">
+  <a href="https://www.npmjs.com/package/use-mcp-react"><img alt="npm package" src="https://img.shields.io/badge/npm-use--mcp--react-19e68c?logo=npm&logoColor=white"></a>
+  <img alt="Version 0.0.0" src="https://img.shields.io/badge/version-0.0.0-19e68c">
+  <a href="https://github.com/WebMCP-org/use-mcp-react/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/WebMCP-org/use-mcp-react/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/WebMCP-org/use-mcp-react/actions/workflows/react-compat.yml"><img alt="React Compatibility" src="https://github.com/WebMCP-org/use-mcp-react/actions/workflows/react-compat.yml/badge.svg"></a>
+  <a href="https://github.com/WebMCP-org/use-mcp-react/actions/workflows/codeql.yml"><img alt="CodeQL" src="https://github.com/WebMCP-org/use-mcp-react/actions/workflows/codeql.yml/badge.svg"></a>
+  <img alt="TypeScript types included" src="https://img.shields.io/badge/types-included-19e68c?logo=typescript&logoColor=white">
+  <a href="https://github.com/WebMCP-org/use-mcp-react/blob/main/LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-19e68c"></a>
+  <img alt="React 18 and 19" src="https://img.shields.io/badge/react-18%20%7C%2019-19e68c?logo=react&logoColor=white">
+  <img alt="Node.js 18 or newer" src="https://img.shields.io/badge/node-%3E%3D18-19e68c?logo=node.js&logoColor=white">
+  <img alt="MCP ready" src="https://img.shields.io/badge/MCP-ready-19e68c">
+</p>
 
-## Installation
+<p align="center">
+  <a href="https://use-mcp-react-playground.alexmnahas.workers.dev">Live playground</a>
+</p>
+
+`use-mcp-react` is for product UIs, playgrounds, and developer tools that accept an MCP server URL at runtime. The hook probes the server with the real MCP TypeScript SDK, classifies the auth requirement, and returns the exact UI branch your React app should render next.
+
+## Why This Exists
+
+Remote MCP servers do not all expose the same browser setup:
+
+- some initialize with no auth
+- some use [MCP OAuth](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization) with [PKCE](https://www.rfc-editor.org/rfc/rfc7636) and [Dynamic Client Registration](https://www.rfc-editor.org/rfc/rfc7591)
+- some require a manually registered public OAuth client id
+- some only return a [bearer/API-key challenge](https://www.rfc-editor.org/rfc/rfc6750)
+- some need an app-owned transport proxy because the [Streamable HTTP](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#streamable-http) MCP endpoint does not allow browser CORS
+
+`useMcp` turns those differences into one React state machine. Your app keeps control of the UI, tokens you own, and proxy policy; the hook owns the MCP client lifecycle, OAuth callback handoff, server profile, and initial catalog loading.
+
+## Install
 
 ```bash
-npm install use-mcp-react react @types/react
+npm install use-mcp-react react
 ```
 
-## Goals
+React is a peer dependency. TypeScript projects that do not already include React types should also install `@types/react`.
 
-- Use the real MCP TypeScript SDK client and Streamable HTTP transport.
-- Infer auth requirements from the MCP server instead of requiring provider-specific setup up front.
-- Support runtime MCP URLs.
-- Support OAuth with explicitly configured Client ID Metadata Documents, Dynamic Client Registration, and manually registered public clients.
-- Support API-key style bearer auth when the MCP server does not advertise MCP OAuth metadata.
-- Keep bearer tokens app-owned. The hook must not persist them.
-- Own browser OAuth popup handoff, callback delivery, storage, and state routing.
-- Test browser-facing behavior in Vitest Browser Mode with MSW and real MCP SDK client/transport/server paths.
+```bash
+npm install -D @types/react
+```
 
-## Basic Usage
+## Quick Start
 
-Register the callback route once:
+Mount the OAuth callback route once in your app:
 
 ```tsx
 import { McpOAuthCallback } from "use-mcp-react";
@@ -33,7 +61,7 @@ import { McpOAuthCallback } from "use-mcp-react";
 <Route path="/oauth/callback" element={<McpOAuthCallback />} />;
 ```
 
-Use one hook instance per MCP server:
+Then create one hook instance per MCP server and render from `status` plus `authRequirement`:
 
 ```tsx
 import { useMcp } from "use-mcp-react";
@@ -43,7 +71,11 @@ export function McpConnection({ url }: { url: string }) {
 
   if (mcp.status === "pending_auth") {
     if (mcp.authRequirement?.type === "oauth") {
-      return <button onClick={() => void mcp.authorize({ target: "popup" })}>Authorize</button>;
+      return (
+        <button onClick={() => void mcp.authorize({ target: "popup" })} type="button">
+          Authorize
+        </button>
+      );
     }
 
     if (mcp.authRequirement?.type === "manual_oauth_client") {
@@ -51,8 +83,8 @@ export function McpConnection({ url }: { url: string }) {
         <ClientIdForm
           onSubmit={(clientId) =>
             void mcp.reconnect({
-              oauth: { clientId },
               authorizationTarget: "popup",
+              oauth: { clientId },
             })
           }
         />
@@ -65,24 +97,153 @@ export function McpConnection({ url }: { url: string }) {
   }
 
   if (mcp.status === "ready") {
-    return <McpTools client={mcp.client} tools={mcp.tools} />;
+    return <ToolList client={mcp.client} tools={mcp.tools} />;
   }
 
-  return <ConnectionStatus status={mcp.status} error={mcp.error} />;
+  return <ConnectionStatus error={mcp.error} status={mcp.status} />;
 }
 ```
 
-For a one-click connect button that can open OAuth automatically, call an action from the user gesture:
+Browser popups must be opened from a user gesture. Mount-time auto-connect can discover OAuth and prepare `authorizationUrl`, but your UI should call `authorize`, `connect`, `reconnect`, or `reauthorize` from a button/form submit when it needs a popup.
+
+## Runtime Connection Pattern
+
+For URL-entry UIs, keep the hook idle until the user submits a real endpoint:
 
 ```tsx
-<button onClick={() => void mcp.connect({ authorizationTarget: "popup" })} type="button">
-  Connect
-</button>
+const [url, setUrl] = useState("");
+const mcp = useMcp({ enabled: false, url: null });
+
+function connect() {
+  void mcp.connect({
+    enabled: true,
+    transportProxy: "/api/mcp-proxy",
+    url,
+  });
+}
 ```
 
-Mount-time auto-connect may prepare OAuth, but it must not open or navigate a popup. Browser popup creation must happen from a user gesture.
+The playground uses this pattern. It starts idle, lets users pick a known server or paste an MCP URL, then calls `connect` with one-shot options. If discovery reports a bearer token or manual OAuth client id is needed, the playground collects that value and calls `reconnect` with the new credential.
+
+## Auth Branches
+
+### No Auth
+
+```tsx
+const mcp = useMcp({ url: "https://mcp.deepwiki.com/mcp" });
+```
+
+If the server initializes without auth, the hook loads the initial catalog and moves to `ready`.
+
+### MCP OAuth
+
+When a server returns an [MCP OAuth](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization) challenge, the hook prepares an authorization request using [OAuth 2.0 Protected Resource Metadata](https://www.ietf.org/rfc/rfc9728.html), [OAuth 2.0 Authorization Server Metadata](https://www.rfc-editor.org/rfc/rfc8414.html), [PKCE](https://www.rfc-editor.org/rfc/rfc7636), [Resource Indicators](https://www.rfc-editor.org/rfc/rfc8707), and [Dynamic Client Registration](https://www.rfc-editor.org/rfc/rfc7591) where available.
+
+```tsx
+if (mcp.authRequirement?.type === "oauth") {
+  return <button onClick={() => void mcp.authorize({ target: "popup" })}>Authorize</button>;
+}
+```
+
+`authRequirement.supportsDynamicClientRegistration`, `authRequirement.supportsClientMetadataDocument`, and `authDiagnostics.registrationStrategy` are available for setup/debug UI.
+
+### Client ID Metadata Document
+
+Generic libraries cannot invent a [Client ID Metadata Document](https://datatracker.ietf.org/doc/draft-ietf-oauth-client-id-metadata-document/) URL for your app. If you host one, pass it explicitly:
+
+```tsx
+const mcp = useMcp({
+  oauth: {
+    clientMetadataUrl: "https://app.example.com/.well-known/oauth-client-metadata.json",
+  },
+  url,
+});
+```
+
+When the authorization server advertises URL-based client identifiers, the hook can use this URL as the public client id.
+The hosted document must include a `client_id` property whose value exactly matches the document URL.
+
+### Manually Registered Public Client
+
+Some authorization servers require a public client id registered out of band:
+
+```tsx
+const mcp = useMcp({
+  oauth: {
+    clientId: "pre_registered_public_client_id",
+    redirectUrl: "https://app.example.com/oauth/callback",
+  },
+  url,
+});
+```
+
+The hook still handles PKCE, state validation, token exchange, callback routing, and MCP connection lifecycle.
+
+### Bearer Token
+
+```tsx
+const mcp = useMcp({
+  bearerToken: apiKey,
+  url,
+});
+```
+
+[Bearer tokens](https://www.rfc-editor.org/rfc/rfc6750) skip OAuth discovery. The hook does not persist bearer tokens because masking, rotation, revocation, and storage policy belong to the host app.
+
+## Browser Deployment Modes
+
+### Direct Mode
+
+Use direct mode when the MCP server supports browser CORS for the MCP endpoint and every required OAuth endpoint:
+
+```tsx
+const mcp = useMcp({
+  url: "https://mcp.linear.app/mcp",
+});
+```
+
+### Transport Proxy Mode
+
+Use transport proxy mode when only the MCP transport endpoint needs server-side forwarding:
+
+```tsx
+const mcp = useMcp({
+  transportProxy: "/api/mcp-proxy",
+  url: userEnteredMcpUrl,
+});
+```
+
+Keep `url` pointed at the upstream MCP server. OAuth discovery, registration, token exchange, token refresh, and callback handling stay in the browser. Only MCP transport requests are sent to the proxy, with `x-mcp-target-url` identifying the upstream target.
+
+If the proxy accepts runtime targets, enforce an allowlist or equivalent policy on the server. The playground demonstrates this with a proxy server route at [`playground/worker/index.ts`](https://github.com/WebMCP-org/use-mcp-react/blob/main/playground/worker/index.ts). See [transport proxy mode](https://github.com/WebMCP-org/use-mcp-react/blob/main/docs/reference/transport-proxy-mode.md) for the setup contract and security checklist.
+
+### Backend Gateway Mode
+
+Backend gateway mode, where your server owns OAuth tokens, tool policy, approvals, tenancy, or audit logging, is a different product model. This hook does not implement that model.
 
 ## Public API
+
+### `useMcp(options)`
+
+```ts
+type UseMcpOptions = {
+  bearerToken?: string;
+  enabled?: boolean;
+  oauth?: {
+    clientId?: string;
+    clientMetadata?: OAuthClientMetadata;
+    clientMetadataUrl?: string;
+    redirectUrl?: URL | string;
+  };
+  storage?: McpStorage | false;
+  transportProxy?: URL | string;
+  url?: URL | string | null;
+};
+```
+
+`enabled` defaults to `true`. `null`, `undefined`, an empty string, an unparseable URL, or `enabled: false` keeps the hook in `idle`.
+
+### Status
 
 ```ts
 type UseMcpStatus =
@@ -94,97 +255,9 @@ type UseMcpStatus =
   | "ready"
   | "reconnecting"
   | "failed";
-
-type McpStorage = {
-  getItem(key: string): Promise<string | null>;
-  setItem(key: string, value: string): Promise<void>;
-  removeItem(key: string): Promise<void>;
-};
-
-type UseMcpOAuthOptions = {
-  clientId?: string;
-  clientMetadata?: OAuthClientMetadata;
-  clientMetadataUrl?: string;
-  redirectUrl?: URL | string;
-};
-
-type UseMcpTransportProxy = string | URL;
-
-type UseMcpOptions = {
-  bearerToken?: string;
-  enabled?: boolean;
-  oauth?: UseMcpOAuthOptions;
-  storage?: McpStorage | false;
-  transportProxy?: UseMcpTransportProxy;
-  url?: URL | string | null;
-};
-
-type AuthorizationTarget = Window;
-
-type UseMcpActionOptions = Partial<UseMcpOptions> & {
-  authorizationTarget?: AuthorizationTarget | "popup";
-  clearClient?: boolean;
-  clearDiscovery?: boolean;
-};
-
-type McpActionResult =
-  | { ok: true }
-  | { ok: false; reason: "popup_blocked" }
-  | { ok: false; reason: "no_pending_authorization" }
-  | { ok: false; reason: "missing_oauth_state" }
-  | { ok: false; reason: "oauth_state_mismatch" }
-  | { ok: false; reason: "not_oauth" }
-  | { ok: false; reason: "failed"; error: Error };
-
-type UseMcpResult = {
-  status: UseMcpStatus;
-  authRequirement: McpAuthRequirement | null;
-  authDiagnostics: McpAuthDiagnostics | null;
-  authorizationUrl: URL | null;
-  error: Error | null;
-
-  client: Client | null;
-  transport: StreamableHTTPClientTransport | null;
-  serverCapabilities: ServerCapabilities | null;
-  serverVersion: Implementation | null;
-  serverProfile: McpServerProfile | null;
-
-  tools: Tool[];
-  resources: Resource[];
-  resourceTemplates: ResourceTemplate[];
-  prompts: Prompt[];
-  catalogStatus: "idle" | "loading" | "ready" | "partial" | "error";
-  catalogErrors: {
-    tools?: unknown;
-    resources?: unknown;
-    resourceTemplates?: unknown;
-    prompts?: unknown;
-  };
-
-  connect(options?: UseMcpActionOptions): Promise<McpActionResult>;
-  disconnect(): Promise<McpActionResult>;
-  reconnect(options?: UseMcpActionOptions): Promise<McpActionResult>;
-  reauthorize(options?: UseMcpActionOptions): Promise<McpActionResult>;
-  forget(): Promise<McpActionResult>;
-  authorize(options?: { target?: AuthorizationTarget | "popup" }): Promise<McpActionResult>;
-  finishAuthorization(code: string, state: string): Promise<McpActionResult>;
-};
 ```
 
-`ready` means MCP initialize completed and the initial catalog load completed. Unsupported catalog capabilities resolve to empty arrays. Unexpected catalog failures keep the connection alive and set `catalogStatus` / `catalogErrors`.
-
-Catalog arrays are always arrays:
-
-```ts
-mcp.tools;
-mcp.resources;
-mcp.resourceTemplates;
-mcp.prompts;
-```
-
-## State Model
-
-`status` describes the connection lifecycle. `authRequirement` describes missing auth input.
+`status` describes what the app can do next. `authRequirement` describes missing auth input.
 
 ```ts
 type McpAuthRequirement =
@@ -198,184 +271,67 @@ type McpAuthRequirement =
     }
   | {
       type: "manual_oauth_client";
+      reason: "client_registration_unavailable";
+      suggestedFields: ["clientId"];
       issuer?: string;
       authorizationEndpoint?: string;
       tokenEndpoint?: string;
-      reason: "client_registration_unavailable";
-      suggestedFields: ["clientId"];
-      supportsClientMetadataDocument: false;
-      supportsDynamicClientRegistration: false;
     }
   | {
       type: "bearer";
+      reason: "oauth_metadata_absent";
       realm?: string;
       scopes?: string[];
-      reason: "oauth_metadata_absent";
     };
 ```
 
-`authDiagnostics` is for debug UI and playgrounds. It should expose stable decisions, not internal SDK phases:
+### Result
+
+`useMcp` returns:
+
+| Field                                                | Purpose                                                                  |
+| ---------------------------------------------------- | ------------------------------------------------------------------------ |
+| `status`                                             | Current connection state for UI branching.                               |
+| `authRequirement`                                    | Normalized OAuth, manual-client, or bearer requirement.                  |
+| `authDiagnostics`                                    | Discovery and registration details for debug/setup UI.                   |
+| `authorizationUrl`                                   | Prepared OAuth authorization URL when OAuth is pending.                  |
+| `client`                                             | Connected MCP SDK `Client`, or `null` until ready.                       |
+| `transport`                                          | Connected `StreamableHTTPClientTransport`, or `null` until ready.        |
+| `tools`, `resources`, `resourceTemplates`, `prompts` | Initial MCP catalog arrays. Unsupported sections are empty arrays.       |
+| `catalogStatus`, `catalogErrors`                     | Catalog loading result. A server can be ready with a partial catalog.    |
+| `serverCapabilities`, `serverVersion`                | Values reported by MCP initialize.                                       |
+| `serverProfile`                                      | Runtime snapshot of initialize, transport, auth mode, and catalog state. |
+| `error`                                              | Last unrecoverable connection, auth, or catalog error.                   |
+
+### Actions
+
+Every async action returns `Promise<McpActionResult>` so UI code can handle failures without parsing exceptions.
+
+| Action                             | Purpose                                                                                  |
+| ---------------------------------- | ---------------------------------------------------------------------------------------- |
+| `connect(options?)`                | Start or retry a connection using hook options plus one-shot overrides.                  |
+| `disconnect()`                     | Close the active SDK client and transport while keeping last-known server/catalog state. |
+| `reconnect(options?)`              | Close and connect again while preserving reusable OAuth state.                           |
+| `reauthorize(options?)`            | Clear OAuth tokens and PKCE state, then start fresh authorization.                       |
+| `forget()`                         | Clear hook-owned auth, connection, server, catalog, and error state.                     |
+| `authorize(options?)`              | Open, focus, or navigate a pending OAuth popup.                                          |
+| `finishAuthorization(code, state)` | Complete an OAuth callback when `state` matches the pending attempt.                     |
+
+`connect`, `reconnect`, and `reauthorize` accept one-shot overrides:
 
 ```ts
-type McpAuthDiagnostics = {
-  issuer?: string;
-  resourceMetadataUrl?: string;
-  authorizationServerMetadataUrl?: string;
-  registrationStrategy?: "client_id" | "client_metadata_url" | "dynamic_client_registration";
-  scopes?: string[];
-  lastError?: Error;
+type UseMcpActionOptions = Partial<UseMcpOptions> & {
+  authorizationTarget?: Window | "popup";
+  clearClient?: boolean;
+  clearDiscovery?: boolean;
 };
 ```
 
-`serverProfile` is a diagnostics snapshot captured after initialize and initial catalog loading. It contains the initialized server info, auth classification, transport mode, catalog completeness, and fetch timestamp. Treat `status === "ready"` and the top-level catalog arrays as the primary runtime contract; use `serverProfile` for debug panes, setup guidance, and proof-of-life displays.
-
-## Auth Inference
-
-`useMcp({ url })` probes the server when `enabled !== false` and `url` is non-empty and parseable.
-
-Inference order:
-
-1. Try stored hook-owned OAuth credentials or app-provided credentials.
-2. If the server connects without auth, proceed to catalog loading.
-3. If `bearerToken` is provided, send it directly and skip OAuth discovery.
-4. If the server returns `WWW-Authenticate: Bearer` with MCP `resource_metadata`, treat it as OAuth-protected.
-5. Use app-provided `oauth.clientId` when present.
-6. Use app-provided `oauth.clientMetadataUrl` only when the authorization server advertises Client ID Metadata Document support.
-7. Use Dynamic Client Registration only when the authorization server advertises `registration_endpoint`.
-8. If OAuth exists but no client id can be produced, set `status: "pending_auth"` with `authRequirement.type === "manual_oauth_client"`.
-9. If the server returns `WWW-Authenticate: Bearer` without MCP `resource_metadata`, set `status: "pending_auth"` with `authRequirement.type === "bearer"`.
-10. If metadata, CORS, token exchange, or transport behavior fails unexpectedly, set `status: "failed"` with a concrete error.
-
-There is no default `clientMetadataUrl`. A generic library cannot assume the consuming app serves a valid Client ID Metadata Document. To use CIMD, host a metadata document and pass its HTTPS URL:
-
-```tsx
-const mcp = useMcp({
-  url,
-  oauth: {
-    clientMetadataUrl: "https://app.example.com/.well-known/oauth-client-metadata.json",
-  },
-});
-```
-
-When `clientMetadataUrl` is configured and advertised, prefer it over DCR. MCPJam follows this same strategy for its own hosted metadata document, but that default is product-specific.
-
-Manual client ids skip DCR:
-
-```tsx
-const mcp = useMcp({
-  url,
-  oauth: {
-    clientId: "pre_registered_public_client_id",
-  },
-});
-```
-
-Bearer tokens skip OAuth discovery:
-
-```tsx
-const mcp = useMcp({
-  url,
-  bearerToken: apiKey,
-});
-```
-
-`bearerToken` is a value, not a getter. When the token changes, pass the new string value so React can reconnect with the current credential.
-
-## Browser Deployment Modes
-
-### Direct Mode
-
-Use direct mode only when you know the MCP server supports browser CORS on the MCP endpoint and on every required OAuth endpoint:
-
-```tsx
-const mcp = useMcp({
-  url: "https://mcp.linear.app/mcp",
-});
-```
-
-Many remote MCP servers do not expose browser CORS headers on the MCP transport endpoint. Use transport proxy mode when direct browser transport is blocked.
-
-### Transport Proxy Mode
-
-Keep `url` as the upstream MCP server and set `transportProxy` to an app-owned backend route:
-
-```tsx
-const mcp = useMcp({
-  url: userEnteredMcpUrl,
-  transportProxy: "/api/mcp-proxy",
-});
-```
-
-The browser still owns OAuth, tokens, and discovery. The proxy only forwards MCP transport requests. Proxied requests include the logical upstream target in `x-mcp-target-url`.
-
-The backend shape is up to your app. If it is dynamic, do not expose it as an unrestricted URL fetcher. See [Transport proxy mode](docs/reference/transport-proxy-mode.md) for one example.
-
-`transportProxy` must be same-origin. If an app needs a remote backend gateway, expose it through a same-origin route and enforce its target allowlist on the server.
-
-### Backend Gateway Mode
-
-Backend gateway mode, where your server owns OAuth tokens or tool policy, is a different product model and is not implemented by this hook.
-
-## Action Semantics
-
-`connect(options?)`
-
-Starts a connection using current hook options plus optional one-shot overrides. It preserves stored hook-owned OAuth state. If `authorizationTarget` is supplied and OAuth is required, the hook may navigate that target after the SDK prepares the authorization URL.
-
-`disconnect()`
-
-Closes the active SDK client and transport. It clears `client` and `transport`, sets `status: "idle"`, and preserves server metadata and catalog arrays as stale last-known data. Apps that need a live MCP client should check `status === "ready"` and `client !== null`.
-
-`reconnect(options?)`
-
-Closes active SDK client/transport and connects again. It preserves hook-owned OAuth client information, tokens, discovery state, and loaded catalog unless a newer result replaces them. This is a connection retry, not a fresh authorization attempt.
-
-`reauthorize(options?)`
-
-Closes active SDK client/transport, clears OAuth tokens, PKCE verifier, and pending authorization state, then starts a fresh user authorization. It preserves reusable client registration and discovery by default. Pass `clearClient: true` or `clearDiscovery: true` for a stronger reset.
-
-`forget()`
-
-Closes live and pending SDK connections, clears hook-owned auth storage, pending authorization state, client/transport refs, server metadata, catalog state, errors, and returns to `idle`.
-
-`authorize(options?)`
-
-Opens, focuses, or navigates a pending OAuth popup. This is useful after auto-connect has already reached `pending_auth` with a prepared `authorizationUrl`.
-
-`finishAuthorization(code, state)`
-
-Completes a callback only when `state` matches the current pending OAuth attempt. Missing or mismatched state must not exchange the code.
-
-When a new `connect`, `reconnect`, or `reauthorize` starts, it supersedes prior pending work for the same hook instance. Late results from older generations must be ignored.
-
-## OAuth Popup Handoff
-
-Browser popup creation must happen inside a user gesture. The hook supports this without forcing apps to understand SDK discovery phases:
-
-```tsx
-await mcp.connect({ authorizationTarget: "popup" });
-```
-
-`authorizationTarget: "popup"` means:
-
-1. The hook opens `about:blank` synchronously during the action call.
-2. The SDK performs auth discovery, client registration or CIMD, PKCE setup, and resource binding.
-3. The hook stores the prepared `authorizationUrl`.
-4. The hook navigates the popup to the final authorization URL.
-5. The callback route posts the result back and closes the popup when possible.
-
-Apps may also pre-open their own window and hand it to the hook:
-
-```tsx
-const target = window.open("about:blank", "mcp-oauth");
-await mcp.connect({ authorizationTarget: target });
-```
-
-The target is one-shot per action. The hook owns windows it opens via `"popup"`. For app-supplied windows, the hook may navigate or focus the window but should not assume ownership beyond the OAuth callback page closing itself.
+When a new connection action starts, it supersedes older pending work for the same hook instance. Late results from older attempts are ignored.
 
 ## OAuth Callback
 
-Apps should serve `McpOAuthCallback` at the configured redirect URL. The default is `/oauth/callback` on the current origin.
+`McpOAuthCallback` is a minimal React page for the configured redirect URL. The default redirect is `/oauth/callback` on the current origin.
 
 ```tsx
 import { McpOAuthCallback } from "use-mcp-react";
@@ -383,28 +339,28 @@ import { McpOAuthCallback } from "use-mcp-react";
 <Route path="/oauth/callback" element={<McpOAuthCallback />} />;
 ```
 
-The library should also export a non-React helper:
+The callback page reads `code`, `state`, `error`, and `error_description`, posts a typed message to `window.opener`, publishes the same message through `BroadcastChannel`, and closes the popup after success when possible.
 
-```ts
-handleMcpOAuthCallback(options?: {
-  closeWindow?: boolean;
-  targetOrigin?: string;
-}): McpOAuthCallbackResult;
-```
+For non-React routing, use `handleMcpOAuthCallback()` directly.
 
-Callback behavior:
+## Protocol References
 
-- Read `code`, `state`, `error`, and `error_description` from the callback URL.
-- Send a typed message to `window.opener` when available.
-- Publish the same typed message through a fixed `BroadcastChannel` for opener-hostile browser or provider behavior.
-- Close the popup after success when possible.
-- Render a small fallback page if the window cannot close.
+This package intentionally follows the MCP and OAuth specifications instead of provider-specific conventions. These are the first-party references behind the auth and transport behavior:
 
-Each hook instance must route callback messages by OAuth `state`, so several MCP servers can authorize on one page without mixing callbacks.
+| Topic                         | Source                                                                                                                                                                                                                                                                 |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| MCP authorization             | [MCP Authorization](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization)                                                                                                                                                                      |
+| MCP Streamable HTTP           | [MCP Transports: Streamable HTTP](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#streamable-http)                                                                                                                                           |
+| MCP tools/resources/prompts   | [MCP Tools](https://modelcontextprotocol.io/specification/2025-11-25/server/tools), [MCP Resources](https://modelcontextprotocol.io/specification/2025-11-25/server/resources), [MCP Prompts](https://modelcontextprotocol.io/specification/2025-11-25/server/prompts) |
+| Protected resource metadata   | [RFC 9728: OAuth 2.0 Protected Resource Metadata](https://www.ietf.org/rfc/rfc9728.html)                                                                                                                                                                               |
+| Authorization server metadata | [RFC 8414: OAuth 2.0 Authorization Server Metadata](https://www.rfc-editor.org/rfc/rfc8414.html)                                                                                                                                                                       |
+| Dynamic Client Registration   | [RFC 7591: OAuth 2.0 Dynamic Client Registration Protocol](https://www.rfc-editor.org/rfc/rfc7591)                                                                                                                                                                     |
+| Client ID Metadata Document   | [IETF draft: OAuth Client ID Metadata Document](https://datatracker.ietf.org/doc/draft-ietf-oauth-client-id-metadata-document/)                                                                                                                                        |
+| PKCE                          | [RFC 7636: Proof Key for Code Exchange](https://www.rfc-editor.org/rfc/rfc7636)                                                                                                                                                                                        |
+| Resource Indicators           | [RFC 8707: Resource Indicators for OAuth 2.0](https://www.rfc-editor.org/rfc/rfc8707)                                                                                                                                                                                  |
+| Bearer tokens                 | [RFC 6750: OAuth 2.0 Bearer Token Usage](https://www.rfc-editor.org/rfc/rfc6750)                                                                                                                                                                                       |
 
 ## Storage
-
-Storage is async from the public API even when the default implementation wraps synchronous `localStorage`:
 
 ```ts
 type McpStorage = {
@@ -414,66 +370,11 @@ type McpStorage = {
 };
 ```
 
-Default storage is `localStorage`, partitioned by canonical MCP server URL and OAuth client configuration. Pass `storage: false` for memory-only state.
+Default storage wraps browser `localStorage` and is partitioned by canonical MCP server URL and OAuth client configuration. Pass `storage: false` for memory-only hook state.
 
-Storage keys use a SHA-256 hash of the canonical MCP server URL plus OAuth client id, redirect URL, client metadata URL, and client metadata:
+Hook-owned storage may include OAuth discovery state, Dynamic Client Registration client information, tokens, pending OAuth state, PKCE verifier, and expected callback state.
 
-```txt
-use-mcp-react:v1:<authHash>:client
-use-mcp-react:v1:<authHash>:tokens
-use-mcp-react:v1:<authHash>:discovery
-use-mcp-react:v1:<authHash>:state
-use-mcp-react:v1:<authHash>:verifier
-```
-
-Hook-owned credentials:
-
-- OAuth client information produced by DCR or CIMD.
-- OAuth tokens.
-- OAuth discovery state.
-- Pending OAuth state, including PKCE verifier and expected state.
-
-App-owned credentials and config:
-
-- `bearerToken`.
-- `oauth.clientId`.
-- `oauth.clientMetadataUrl`.
-- `oauth.clientMetadata`.
-
-`forget()` clears hook-owned state for the current MCP server. It cannot clear bearer tokens or OAuth options that the app keeps passing as props.
-
-## Playground UX Contract
-
-The playground should demonstrate the library API, not reimplement OAuth lifecycle details.
-
-Presets should be server-first:
-
-```ts
-type Preset = {
-  name: string;
-  url: string;
-  expectedAuth: "none" | "oauth" | "bearer" | "path_api_key" | "manual_oauth";
-  docsUrl: string;
-};
-```
-
-Auth controls should be overrides:
-
-- Auto
-- Bearer token
-- Manual OAuth client id
-- Client metadata URL
-- Path API key
-
-The primary button should call:
-
-```ts
-mcp.connect({ authorizationTarget: "popup" });
-```
-
-Diagnostic UI may show issuer, scopes, metadata URLs, and selected registration strategy. Users should not need to understand DCR, CIMD, or SDK auth phases to try a known server.
-
-Remote browser examples should derive transport from URL policy instead of storing per-server proxy flags: use the app-owned transport proxy for public HTTPS MCP URLs and keep local development URLs direct.
+The hook never stores app-owned values such as `bearerToken`, `oauth.clientId`, `oauth.clientMetadataUrl`, or `oauth.clientMetadata`.
 
 ## Multiple MCP Servers
 
@@ -484,73 +385,60 @@ const github = useMcp({ url: githubMcpUrl });
 const linear = useMcp({ url: linearMcpUrl });
 ```
 
-Each instance owns its own auth discovery, PKCE state, tokens, MCP client, transport, pending callback state, and catalog state.
+Each instance owns its own auth discovery, token audience, PKCE state, MCP client, transport, pending callback state, and catalog state.
 
-A future `useMcps()` can coordinate several servers, but it should compose per-server state machines instead of creating a separate multi-server protocol model.
+## Playground
 
-## What Is Tested Today
+Open the live playground to see the intended integration flow:
 
-The browser E2E harness uses:
+https://use-mcp-react-playground.alexmnahas.workers.dev
 
-- Vitest Browser Mode
-- Playwright Chromium
-- MSW in a real browser service worker
-- real browser `fetch`
-- real SDK `Client`
-- real SDK `StreamableHTTPClientTransport`
-- real SDK `McpServer`
-- real SDK `WebStandardStreamableHTTPServerTransport`
-- real MCP JSON-RPC protocol handling
-- real SSE `text/event-stream` responses
-- real SDK OAuth client behavior
+Or run it locally:
 
-Covered scenarios:
+```bash
+vp run playground
+```
 
-- OAuth with Dynamic Client Registration
-- OAuth with a pre-registered public client id
-- OAuth with Client ID Metadata Document when explicitly configured
-- failure when DCR is disabled and no client id is available
-- PKCE `S256` enforcement
-- static bearer/API-key auth when the MCP server does not advertise OAuth metadata
-- bearer-required detection when no token is provided
-- transport proxy mode for MCP requests while OAuth metadata, registration, and token exchange stay direct
-- MCP `initialize`, `ping`, `tools/list`, `tools/call`, `resources/list`, `resources/read`, `prompts/list`, `prompts/get`
-- SSE responses through MSW
-- stateful `mcp-session-id`
-- explicit `DELETE /mcp` session termination
+The playground includes presets for unauthenticated, OAuth, bearer-token, and manual-client scenarios. Remote presets use an app-owned transport proxy for MCP transport requests; OAuth remains browser-owned.
 
-The test-owned pieces are the in-memory authorization server, token store, and simulated user consent step. The MCP client/server stack is not mocked.
+The deployed playground ships its React SPA and `/api/mcp-proxy` backend together. The proxy exists for servers such as Stripe whose MCP transport endpoint does not expose browser CORS. See [`playground/worker/index.ts`](https://github.com/WebMCP-org/use-mcp-react/blob/main/playground/worker/index.ts) and [transport proxy mode](https://github.com/WebMCP-org/use-mcp-react/blob/main/docs/reference/transport-proxy-mode.md).
+
+It also serves a Client ID Metadata Document at `/.well-known/oauth-client-metadata.json`. The document includes `client_id` equal to that full URL, which authorization servers require when they validate URL-based client ids. Use the playground CIMD toggle to pass that URL as `oauth.clientMetadataUrl` and demonstrate URL-based public OAuth client ids.
 
 ## Development
 
-Install dependencies:
+This repo uses Vite+.
 
 ```bash
 vp install
-```
-
-Run checks:
-
-```bash
 vp check
-```
-
-Run tests:
-
-```bash
 vp test
-```
-
-Build the package:
-
-```bash
 vp pack
 ```
 
-## Reference Docs
+Validate the publishable package:
 
-- [React hook auth triage](docs/reference/react-hook-auth-triage.md)
-- [OAuth MCP test server with MSW](docs/reference/oauth-mcp-msw-test-server.md)
-- [Transport proxy mode](docs/reference/transport-proxy-mode.md)
-- [TDD implementation prompt](docs/prompts/tdd-implementation.md)
-- [Public API redesign TDD prompt](docs/prompts/tdd-public-api-redesign.md)
+```bash
+vp run validate:package
+vp run verify:packed-consumer
+```
+
+## Documentation
+
+- [Transport proxy mode](https://github.com/WebMCP-org/use-mcp-react/blob/main/docs/reference/transport-proxy-mode.md)
+- [OAuth MCP test server with MSW](https://github.com/WebMCP-org/use-mcp-react/blob/main/docs/reference/oauth-mcp-msw-test-server.md)
+- [Release process](https://github.com/WebMCP-org/use-mcp-react/blob/main/docs/release.md)
+- [Open source checklist](https://github.com/WebMCP-org/use-mcp-react/blob/main/docs/open-source-checklist.md)
+
+## Contributing
+
+See [CONTRIBUTING.md](https://github.com/WebMCP-org/use-mcp-react/blob/main/CONTRIBUTING.md). Before opening a PR, run:
+
+```bash
+vp check
+vp test
+```
+
+## License
+
+MIT

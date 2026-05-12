@@ -1,6 +1,6 @@
 # Reference Material
 
-This directory is for source lookup instructions and local spec snapshots that future agents can read without rediscovering context.
+This directory is for source lookup instructions and durable notes that future agents can read without rediscovering context.
 
 ## Source Fetching
 
@@ -11,7 +11,7 @@ vp exec opensrc fetch <package-or-repo>
 vp exec opensrc path <package-or-repo>
 ```
 
-See `opensrc-sources.md` for the exact cache paths already fetched for this repo.
+See `opensrc-sources.md` for the source packages and repositories this project commonly inspects.
 
 ## Prior Art Source
 
@@ -32,21 +32,8 @@ sed -n '1,260p' "$(vp exec opensrc path @ai-sdk/mcp)/src/tool/mcp-client.ts"
 
 The `docs/reference/prior-art/` source snapshot directory was intentionally removed. `opensrc` cache paths are the source of truth.
 
-## Research Notes
+## Durable Notes
 
-- `oauth-mcp-msw-test-server.md` captures the research and recommended design for testing OAuth-protected MCP servers with MSW, the MCP TypeScript SDK, and Vitest Browser Mode.
-- `react-hook-auth-triage.md` captures the proposed hook-only React API, auth inference order, runtime URL behavior, popup callback model, and auth requirement diagnosis.
-
-## OAuth Specs
-
-The OAuth/MCP specs are mirrored as HTML under `oauth-specs/` for offline lookup:
-
-- MCP authorization 2025-11-25
-- MCP authorization 2025-06-18
-- RFC 7591 Dynamic Client Registration
-- RFC 7636 PKCE
-- RFC 8414 Authorization Server Metadata
-- RFC 8707 Resource Indicators
-- RFC 9728 Protected Resource Metadata
-- OAuth 2.1 draft
-- Client ID Metadata Document draft
+- `oauth-mcp-msw-test-server.md` captures the recommended design for testing OAuth-protected MCP servers with MSW, the MCP TypeScript SDK, and Vitest Browser Mode.
+- `transport-proxy-mode.md` documents the app-owned transport proxy model.
+- `sdk-resource-metadata-url-loss.md` documents the SDK diagnostic workaround kept in `src/index.ts`.

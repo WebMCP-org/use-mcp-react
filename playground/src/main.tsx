@@ -20,6 +20,7 @@ type Preset = {
   authMode: AuthMode;
   id: string;
   name: string;
+  proxyNote?: string;
   tag: string;
   url: string;
 };
@@ -27,8 +28,10 @@ type Preset = {
 type ConnectionDraft = {
   authMode: AuthMode;
   bearerToken: string;
+  clientMetadataDocumentEnabled: boolean;
   clientId: string;
   presetId: string;
+  proxyEnabled: boolean;
   redirectUrl: string;
   scope: string;
   url: string;
@@ -52,6 +55,8 @@ const presets: Preset[] = [
     authMode: "auto",
     id: "deepwiki",
     name: "DeepWiki",
+    proxyNote:
+      "DeepWiki is a public no-auth server; the demo still routes transport through the proxy so the request path is visible.",
     tag: "No auth",
     url: "https://mcp.deepwiki.com/mcp",
   },
@@ -59,6 +64,8 @@ const presets: Preset[] = [
     authMode: "auto",
     id: "linear-dcr",
     name: "Linear",
+    proxyNote:
+      "Linear OAuth stays in the browser; only MCP transport POSTs are forwarded through the proxy server route.",
     tag: "OAuth",
     url: "https://mcp.linear.app/mcp",
   },
@@ -66,20 +73,17 @@ const presets: Preset[] = [
     authMode: "bearer",
     id: "firecrawl-bearer",
     name: "Firecrawl",
+    proxyNote:
+      "Bearer-token transports often cannot be called directly from a browser app, so the demo forwards MCP POSTs server-side.",
     tag: "Bearer",
     url: "https://mcp.firecrawl.dev/v2/mcp",
   },
   {
     authMode: "auto",
-    id: "recraft-oauth",
-    name: "Recraft",
-    tag: "OAuth",
-    url: "https://mcp.recraft.ai/mcp",
-  },
-  {
-    authMode: "auto",
     id: "stripe",
     name: "Stripe",
+    proxyNote:
+      "Stripe's MCP endpoint does not expose browser CORS for transport requests, so this demo uses the proxy server route.",
     tag: "OAuth",
     url: "https://mcp.stripe.com",
   },
@@ -87,10 +91,17 @@ const presets: Preset[] = [
     authMode: "auto",
     id: "gmail-manual",
     name: "Gmail MCP",
+    proxyNote:
+      "Local HTTP development URLs stay direct; the playground only proxies public HTTPS MCP targets.",
     tag: "OAuth",
     url: "http://localhost:3000/mcp",
   },
 ];
+
+const repositoryUrl = "https://github.com/WebMCP-org/use-mcp-react";
+const workerSourceUrl = `${repositoryUrl}/blob/main/playground/worker/index.ts`;
+const proxyDocsUrl = `${repositoryUrl}/blob/main/docs/reference/transport-proxy-mode.md`;
+const clientMetadataDocumentPath = "/.well-known/oauth-client-metadata.json";
 
 const statusLabels: Record<UseMcpStatus, string> = {
   authenticating: "Authenticating",
@@ -274,6 +285,19 @@ function PlaygroundPage() {
           value={draft.url}
         />
         <PresetPills onSelect={choosePreset} selectedId={draft.presetId} />
+        <ProxyToggle
+          enabled={draft.proxyEnabled}
+          onChange={(proxyEnabled) => setDraft({ ...draft, proxyEnabled })}
+          selectedId={draft.presetId}
+          url={resolvedUrl}
+        />
+        <ClientMetadataDocumentToggle
+          enabled={draft.clientMetadataDocumentEnabled}
+          onChange={(clientMetadataDocumentEnabled) =>
+            setDraft({ ...draft, clientMetadataDocumentEnabled })
+          }
+          url={resolvedUrl}
+        />
         <OverrideDisclosure
           draft={draft}
           forceOpen={draft.authMode !== "auto"}
@@ -317,12 +341,37 @@ function PlaygroundPage() {
 function Header() {
   return (
     <header className="page-header">
-      <h1>use-mcp-react</h1>
+      <div className="header-topline">
+        <h1>use-mcp-react</h1>
+        <a className="github-link" href={repositoryUrl} rel="noreferrer" target="_blank">
+          <GithubIcon />
+          <span>GitHub</span>
+        </a>
+      </div>
       <p>
         The hook detects an MCP server&rsquo;s auth requirement and tells your app what UI to
         render.
       </p>
+      <nav aria-label="Code links" className="header-links">
+        <a href={workerSourceUrl} rel="noreferrer" target="_blank">
+          Proxy route code
+        </a>
+        <a href={proxyDocsUrl} rel="noreferrer" target="_blank">
+          Proxy setup docs
+        </a>
+      </nav>
     </header>
+  );
+}
+
+function GithubIcon() {
+  return (
+    <svg aria-hidden="true" className="github-icon" focusable="false" viewBox="0 0 16 16">
+      <path
+        d="M8 0.2a8 8 0 0 0-2.53 15.59c0.4 0.07 0.55-0.17 0.55-0.39v-1.36c-2.24 0.49-2.71-1.08-2.71-1.08-0.36-0.93-0.89-1.18-0.89-1.18-0.73-0.5 0.06-0.49 0.06-0.49 0.81 0.06 1.23 0.83 1.23 0.83 0.72 1.23 1.88 0.88 2.34 0.67 0.07-0.52 0.28-0.88 0.51-1.08-1.79-0.2-3.67-0.89-3.67-3.98 0-0.88 0.31-1.6 0.83-2.16-0.08-0.2-0.36-1.02 0.08-2.13 0 0 0.68-0.22 2.2 0.83A7.6 7.6 0 0 1 8 3.51c0.68 0 1.36 0.09 2 0.27 1.52-1.05 2.2-0.83 2.2-0.83 0.44 1.11 0.16 1.93 0.08 2.13 0.52 0.56 0.83 1.28 0.83 2.16 0 3.09-1.88 3.77-3.67 3.97 0.29 0.25 0.54 0.74 0.54 1.49v2.7c0 0.22 0.15 0.46 0.55 0.39A8 8 0 0 0 8 0.2Z"
+        fill="currentColor"
+      />
+    </svg>
   );
 }
 
@@ -376,21 +425,162 @@ function PresetPills({
   selectedId: string;
 }) {
   return (
-    <div className="preset-pills" role="group" aria-label="Preset MCP servers">
-      <span className="preset-pills-label">Try</span>
-      {presets.map((preset) => (
-        <button
-          aria-pressed={preset.id === selectedId}
-          className={preset.id === selectedId ? "preset-pill active" : "preset-pill"}
-          key={preset.id}
-          onClick={() => onSelect(preset)}
-          type="button"
-        >
-          <span className="preset-pill-name">{preset.name}</span>
-          <span className="preset-pill-tag">{preset.tag}</span>
-        </button>
-      ))}
-    </div>
+    <section className="preset-section" aria-label="Preset MCP servers">
+      <div className="preset-pills" role="group">
+        <span className="preset-pills-label">Try</span>
+        {presets.map((preset) => (
+          <button
+            aria-pressed={preset.id === selectedId}
+            className={preset.id === selectedId ? "preset-pill active" : "preset-pill"}
+            key={preset.id}
+            onClick={() => onSelect(preset)}
+            type="button"
+          >
+            <span className="preset-pill-name">{preset.name}</span>
+            <span className="preset-pill-tag">{preset.tag}</span>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ProxyToggle({
+  enabled,
+  onChange,
+  selectedId,
+  url,
+}: {
+  enabled: boolean;
+  onChange: (enabled: boolean) => void;
+  selectedId: string;
+  url: string;
+}) {
+  const proxyPath = playgroundMcpTransportProxyFor(url);
+  const canProxy = Boolean(proxyPath);
+  const selectedPreset = presets.find((preset) => preset.id === selectedId) ?? presets[0];
+  const showStripeDirectNote = selectedPreset.id === "stripe" && canProxy && !enabled;
+
+  return (
+    <section className="proxy-mode" aria-label="Proxy mode">
+      <div className="proxy-toggle-card">
+        <div>
+          <strong>Transport proxy</strong>
+          <p>
+            {canProxy
+              ? enabled
+                ? "On: MCP transport POSTs go through the proxy server route."
+                : "Off: the browser calls the MCP transport directly."
+              : "Unavailable for this URL. The playground only proxies public HTTPS MCP targets."}
+          </p>
+        </div>
+        <label className="switch">
+          <input
+            checked={enabled && canProxy}
+            disabled={!canProxy}
+            onChange={(event) => onChange(event.target.checked)}
+            type="checkbox"
+          />
+          <span className="switch-track" aria-hidden="true">
+            <span className="switch-thumb" />
+          </span>
+          <span className="switch-label">{enabled && canProxy ? "On" : "Off"}</span>
+        </label>
+      </div>
+
+      {canProxy && enabled ? (
+        <div className="proxy-explainer">
+          <strong>
+            Proxy route: <code>{proxyPath}</code>
+          </strong>
+          <p>
+            {selectedPreset.proxyNote} OAuth discovery, registration, token exchange, and refresh
+            stay in the browser; the proxy server route forwards only MCP transport requests with{" "}
+            <code>x-mcp-target-url</code>.
+          </p>
+          <div className="proxy-links">
+            <a href={workerSourceUrl} rel="noreferrer" target="_blank">
+              <GithubIcon />
+              <span>View proxy code</span>
+            </a>
+            <a href={proxyDocsUrl} rel="noreferrer" target="_blank">
+              Proxy docs
+            </a>
+          </div>
+        </div>
+      ) : null}
+
+      {showStripeDirectNote ? (
+        <p className="proxy-direct-note" role="note">
+          Stripe requires a proxy for browser apps because its MCP transport endpoint does not
+          expose CORS. Turn the proxy on before connecting.
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+function ClientMetadataDocumentToggle({
+  enabled,
+  onChange,
+  url,
+}: {
+  enabled: boolean;
+  onChange: (enabled: boolean) => void;
+  url: string;
+}) {
+  const canUseClientMetadataDocument =
+    typeof window !== "undefined" &&
+    window.location.protocol === "https:" &&
+    normalizeHttpsUrl(url) !== null;
+
+  return (
+    <section className="proxy-mode" aria-label="Client ID Metadata Document mode">
+      <div className="proxy-toggle-card">
+        <div>
+          <strong>Client ID Metadata Document</strong>
+          <p>
+            {canUseClientMetadataDocument
+              ? enabled
+                ? "On: the app publishes a client metadata document URL and passes it as the OAuth client id."
+                : "Off: the hook falls back to the server's default OAuth registration strategy."
+              : "Available on the deployed HTTPS playground for public HTTPS MCP URLs."}
+          </p>
+        </div>
+        <label className="switch">
+          <input
+            checked={enabled && canUseClientMetadataDocument}
+            disabled={!canUseClientMetadataDocument}
+            onChange={(event) => onChange(event.target.checked)}
+            type="checkbox"
+          />
+          <span className="switch-track" aria-hidden="true">
+            <span className="switch-thumb" />
+          </span>
+          <span className="switch-label">
+            {enabled && canUseClientMetadataDocument ? "On" : "Off"}
+          </span>
+        </label>
+      </div>
+
+      {enabled && canUseClientMetadataDocument ? (
+        <div className="proxy-explainer">
+          <strong>
+            Metadata route: <code>{clientMetadataDocumentPath}</code>
+          </strong>
+          <p>
+            This route serves public OAuth client metadata for the playground. When the server
+            advertises CIMD support, the hook can use this URL instead of dynamic registration.
+          </p>
+          <div className="proxy-links">
+            <a href={workerSourceUrl} rel="noreferrer" target="_blank">
+              <GithubIcon />
+              <span>View route code</span>
+            </a>
+          </div>
+        </div>
+      ) : null}
+    </section>
   );
 }
 
@@ -930,7 +1120,13 @@ function Fact({ label, mono, value }: { label: string; mono?: boolean; value: st
 function Footer() {
   return (
     <footer className="page-footer">
-      <p>Remote presets use the playground transport proxy; OAuth stays in the browser.</p>
+      <p>
+        Remote presets use the proxy server route for MCP transport; OAuth stays in the browser.{" "}
+        <a href={workerSourceUrl} rel="noreferrer" target="_blank">
+          View the code
+        </a>
+        .
+      </p>
     </footer>
   );
 }
@@ -1305,8 +1501,10 @@ function draftFromPreset(preset: Preset): ConnectionDraft {
   return {
     authMode: preset.authMode,
     bearerToken: "",
+    clientMetadataDocumentEnabled: false,
     clientId: "",
     presetId: preset.id,
+    proxyEnabled: true,
     redirectUrl: defaultRedirectUrl,
     scope: "",
     url: preset.url,
@@ -1322,12 +1520,19 @@ function createConnectionOptions(draft: ConnectionDraft, resolvedUrl: string): U
       : {}),
     enabled: Boolean(resolvedUrl),
     ...(oauth ? { oauth } : {}),
-    ...appOwnedTransportProxyOptions(resolvedUrl),
+    ...appOwnedTransportProxyOptions(resolvedUrl, draft.proxyEnabled),
     url: resolvedUrl || null,
   };
 }
 
-function appOwnedTransportProxyOptions(resolvedUrl: string): Pick<UseMcpOptions, "transportProxy"> {
+function appOwnedTransportProxyOptions(
+  resolvedUrl: string,
+  proxyEnabled: boolean,
+): Pick<UseMcpOptions, "transportProxy"> {
+  if (!proxyEnabled) {
+    return {};
+  }
+
   const transportProxy = playgroundMcpTransportProxyFor(resolvedUrl);
 
   if (transportProxy) {
@@ -1338,18 +1543,37 @@ function appOwnedTransportProxyOptions(resolvedUrl: string): Pick<UseMcpOptions,
 }
 
 function createOAuthOptions(draft: ConnectionDraft): UseMcpOptions["oauth"] | undefined {
-  if (draft.authMode !== "manual-oauth") {
-    return undefined;
+  if (draft.clientMetadataDocumentEnabled) {
+    return {
+      clientMetadata: defaultClientMetadata(draft.redirectUrl, draft.scope.trim()),
+      ...(window.location.protocol === "https:"
+        ? { clientMetadataUrl: `${window.location.origin}${clientMetadataDocumentPath}` }
+        : {}),
+      redirectUrl: draft.redirectUrl,
+    };
   }
 
-  const clientId = draft.clientId.trim();
-  const scope = draft.scope.trim();
+  if (draft.authMode === "manual-oauth") {
+    const clientId = draft.clientId.trim();
+    const scope = draft.scope.trim();
 
-  return {
-    ...(clientId ? { clientId } : {}),
-    clientMetadata: defaultClientMetadata(draft.redirectUrl, scope),
-    redirectUrl: draft.redirectUrl,
-  };
+    return {
+      ...(clientId ? { clientId } : {}),
+      clientMetadata: defaultClientMetadata(draft.redirectUrl, scope),
+      redirectUrl: draft.redirectUrl,
+    };
+  }
+
+  return undefined;
+}
+
+function normalizeHttpsUrl(url: string): URL | null {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "https:" ? parsed : null;
+  } catch {
+    return null;
+  }
 }
 
 function defaultClientMetadata(redirectUrl: string, scope: string) {

@@ -11,21 +11,26 @@ The playground is a single-screen live demo of the library's actual pitch: paste
 ## What the demo shows
 
 1. **URL bar + preset pills.** Paste a URL or pick a preset.
-2. **Discovery timeline.** Each phase of the hook's probing lights up as it happens: endpoint reach → no-auth probe → resource metadata → authorization server → registration strategy.
-3. **Inference verdict, "Render this" UI, and the React code branch.** Three equal-weight cards. The middle card is a live, working input form — clicking the OAuth button or submitting the bearer/client-id form actually drives the connection.
-4. **Proof of life.** Once `mcp.status === "ready"`, the server identity, capabilities, and catalog counts/listings appear. No invocation UI.
+2. **Transport proxy toggle.** Compare the proxy server route with direct browser transport. Turning it off is useful for demonstrating CORS failures on servers such as Stripe.
+3. **Client ID Metadata Document toggle.** Publish or withhold `/.well-known/oauth-client-metadata.json` so you can compare CIMD with the server's default registration path.
+4. **Discovery timeline.** Each phase of the hook's probing lights up as it happens: endpoint reach → no-auth probe → resource metadata → authorization server → registration strategy.
+5. **Inference verdict, "Render this" UI, and the React code branch.** Three equal-weight cards. The middle card is a live, working input form — clicking the OAuth button or submitting the bearer/client-id form actually drives the connection.
+6. **Proof of life.** Once `mcp.status === "ready"`, the server identity, capabilities, and catalog counts/listings appear. No invocation UI.
 
 ## Bundled presets
 
 Remote presets use the app-owned transport proxy at `/api/mcp-proxy` for MCP transport requests.
 OAuth discovery, DCR, token exchange, and token refresh still run directly in the browser.
 
+The deployed playground ships that proxy server route next to the React SPA. This is the pattern to copy when a server's MCP transport endpoint does not expose browser CORS. Stripe is the clearest preset: OAuth still happens in the browser, but Stripe's MCP transport POSTs go through `/api/mcp-proxy`.
+
+The playground also serves a Client ID Metadata Document at `/.well-known/oauth-client-metadata.json`. The document includes `client_id` equal to that full metadata URL, which authorization servers require when they validate URL-based client ids. Turn the CIMD toggle on to pass that URL as `oauth.clientMetadataUrl`, so authorization servers that advertise Client ID Metadata Document support can use the document URL as the public OAuth client id instead of dynamic registration. Turn it off to compare the fallback registration behavior.
+
 | Preset               | URL                                | Expected verdict                                                                      |
 | -------------------- | ---------------------------------- | ------------------------------------------------------------------------------------- |
 | DeepWiki             | `https://mcp.deepwiki.com/mcp`     | `authRequirement = null` through `/api/mcp-proxy`                                     |
-| Linear               | `https://mcp.linear.app/mcp`       | `type: "oauth"`, DCR = true through `/api/mcp-proxy`                                  |
+| Linear               | `https://mcp.linear.app/mcp`       | `type: "oauth"` through `/api/mcp-proxy`; toggle CIMD on to use the metadata document |
 | Firecrawl            | `https://mcp.firecrawl.dev/v2/mcp` | `type: "bearer"` through `/api/mcp-proxy`                                             |
-| Recraft              | `https://mcp.recraft.ai/mcp`       | `type: "oauth"` through `/api/mcp-proxy`                                              |
 | Stripe               | `https://mcp.stripe.com`           | `type: "oauth"` through `/api/mcp-proxy`                                              |
 | Gmail MCP (template) | `http://localhost:3000/mcp`        | Auto-detects first, then `type: "manual_oauth_client"` if registration is unavailable |
 
@@ -35,18 +40,27 @@ The OAuth callback handler is mounted at `/oauth/callback`.
 
 The collapsed "Override detected auth (advanced)" section forces a specific `authMode` (Auto / Bearer / Manual OAuth client id) — useful for testing against a server whose metadata you already know, or for supplying a bearer token up front so the hook skips OAuth discovery.
 
-The remote presets use transport proxy mode. The browser still owns OAuth; the local dev proxy only forwards MCP transport `POST` requests to the target in `x-mcp-target-url`.
+The remote presets use transport proxy mode. The browser still owns OAuth; the local dev proxy forwards requests to the target in `x-mcp-target-url`.
 
-The playground proxy is upstream-agnostic and dynamic. It accepts public `https:` MCP targets, blocks local/private targets, requires stateless JSON-RPC `POST` bodies, and forwards only MCP-relevant headers.
+The playground proxy is upstream-agnostic and dynamic. The UI only enables it for public `https:` MCP targets, and the Worker is otherwise a pass-through demo route.
 
 The proxy route is app-owned configuration, not end-user input. The playground passes `/api/mcp-proxy` for public HTTPS MCP URLs and leaves local or non-HTTPS development URLs direct.
+
+## Proxy implementation
+
+- Worker source: [`playground/worker/index.ts`](https://github.com/WebMCP-org/use-mcp-react/blob/main/playground/worker/index.ts)
+- Vite/Cloudflare setup: [`playground/vite.config.ts`](https://github.com/WebMCP-org/use-mcp-react/blob/main/playground/vite.config.ts)
+- Wrangler config: [`playground/wrangler.jsonc`](https://github.com/WebMCP-org/use-mcp-react/blob/main/playground/wrangler.jsonc)
+- Proxy setup docs: [`docs/reference/transport-proxy-mode.md`](https://github.com/WebMCP-org/use-mcp-react/blob/main/docs/reference/transport-proxy-mode.md)
+- Client ID Metadata Document: `/.well-known/oauth-client-metadata.json`
+
+Run the same shape locally with `vp run playground`; deploy it with `vp run use-mcp-react-playground#deploy`.
 
 ## Sources
 
 - DeepWiki MCP: https://mcp.deepwiki.com/mcp
 - Official MCP example remote server: https://github.com/modelcontextprotocol/example-remote-server
 - Linear MCP: https://linear.app/docs/mcp
-- Recraft MCP: https://www.recraft.ai/docs/mcp-reference/remote-server
 - Stripe MCP: https://docs.stripe.com/mcp
 - Firecrawl MCP: https://docs.firecrawl.dev/mcp
 - Google OAuth web apps: https://developers.google.com/identity/protocols/oauth2/web-server

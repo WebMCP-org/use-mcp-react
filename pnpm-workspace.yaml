@@ -1,7 +1,13 @@
+packages:
+  - playground
+
 allowBuilds:
+  esbuild: true
   fallow: true
   msw: false
   opensrc: false
+  sharp: true
+  workerd: true
 catalog:
   vite: npm:@voidzero-dev/vite-plus-core@0.1.20
   vitest: npm:@voidzero-dev/vite-plus-test@0.1.20

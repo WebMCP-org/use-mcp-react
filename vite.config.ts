@@ -12,6 +12,9 @@ const ignoredGeneratedAndReferenceFiles = [
   "dist/**",
   "docs/reference/**",
   "node_modules/**",
+  "playground/.wrangler/**",
+  "playground/dist/**",
+  "playground/worker-configuration.d.ts",
 ];
 
 export default defineConfig({

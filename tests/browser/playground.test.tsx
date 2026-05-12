@@ -307,7 +307,7 @@ describe("playground", () => {
     const tokenRequests = tokenRequestCount(server.requestLog);
     const registrationRequests = registerRequestCount(server.requestLog);
 
-    await page.getByRole("button", { name: /Linear/ }).click();
+    await page.getByRole("button", { exact: true, name: "Linear OAuth" }).click();
     await vi.waitFor(() => {
       expect((document.querySelector("#mcp-url") as HTMLInputElement | null)?.value).toBe(
         "https://mcp.linear.app/mcp",

@@ -78,22 +78,4 @@ jobs:
         run: vp run validate:package
 
       - name: Verify packed ESM consumer
-        shell: bash
-        run: |
-          set -euo pipefail
-          TARBALL="$(npm pack --json --ignore-scripts | node -e "let data=''; process.stdin.on('data', c => data += c); process.stdin.on('end', () => console.log(JSON.parse(data)[0].filename));")"
-          TMP_DIR="$(mktemp -d)"
-          cp "$TARBALL" "$TMP_DIR/package.tgz"
-          cd "$TMP_DIR"
-          npm init -y
-          npm install --ignore-scripts ./package.tgz react@19 @modelcontextprotocol/sdk@1
-          node --input-type=module -e "import('use-mcp-react').then((m) => { if (typeof m.useMcp !== 'function') throw new Error('Missing useMcp export'); if (typeof m.McpOAuthCallback !== 'function') throw new Error('Missing McpOAuthCallback export') })"
-          cat > index.ts <<'TS'
-          import { useMcp, type UseMcpOptions, type UseMcpResult } from "use-mcp-react";
-
-          const options: UseMcpOptions = { enabled: false, storage: false, url: null };
-          const hook: (options: UseMcpOptions) => UseMcpResult = useMcp;
-          console.log(Boolean(options) && Boolean(hook));
-          TS
-          npm install --ignore-scripts --save-dev typescript@6
-          npx tsc --module nodenext --moduleResolution nodenext --target es2022 --strict --noEmit index.ts
+        run: vp run verify:packed-consumer

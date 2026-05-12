@@ -1,9 +1,16 @@
-# Replace this with the SOC2 org's owning team if different.
 * @alexmnahas
 
 .github/** @alexmnahas
 .changeset/** @alexmnahas
+CODE_OF_CONDUCT.md @alexmnahas
+CONTRIBUTING.md @alexmnahas
+PRIVACY.md @alexmnahas
+SECURITY.md @alexmnahas
+SUPPORT.md @alexmnahas
+docs/open-source-checklist.md @alexmnahas
+docs/release.md @alexmnahas
 package.json @alexmnahas
 pnpm-lock.yaml @alexmnahas
 pnpm-workspace.yaml @alexmnahas
+scripts/** @alexmnahas
 vite.config.ts @alexmnahas

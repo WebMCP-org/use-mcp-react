@@ -13,7 +13,15 @@ The browser remains the OAuth client:
 - token storage
 - `Authorization: Bearer ...` on MCP requests
 
-The proxy only forwards stateless MCP transport requests to public HTTPS upstream targets that pass its MCP target policy. A dynamic proxy does not need an exact list of MCP servers ahead of time; it applies that policy to each browser request.
+The proxy is app-owned plumbing. In the playground it forwards stateless MCP transport requests in the direction selected by the UI, while the browser still owns OAuth and all MCP client behavior.
+
+The repository playground includes a concrete proxy server route implementation:
+
+- Worker source: [`playground/worker/index.ts`](https://github.com/WebMCP-org/use-mcp-react/blob/main/playground/worker/index.ts)
+- Cloudflare Vite config: [`playground/vite.config.ts`](https://github.com/WebMCP-org/use-mcp-react/blob/main/playground/vite.config.ts)
+- Wrangler config: [`playground/wrangler.jsonc`](https://github.com/WebMCP-org/use-mcp-react/blob/main/playground/wrangler.jsonc)
+
+That same Worker also serves the playground Client ID Metadata Document at `/.well-known/oauth-client-metadata.json`; it is separate from the transport proxy route.
 
 ```tsx
 const mcp = useMcp({
@@ -39,16 +47,15 @@ accept: application/json, text/event-stream
 mcp-protocol-version: 2025-11-25
 ```
 
-For a stateless proxy, support `POST` and return `405 Method Not Allowed` for `GET` unless you intentionally support SSE streaming.
+The playground proxy forwards whatever request the hook sends to the configured target. In normal use that means MCP transport `POST`s, because the hook handles stateless proxy mode before an SSE `GET` reaches the Worker.
 
-## Backend Recipe
+## Loose Demo Proxy
 
-This is framework-neutral Fetch API style pseudocode. The helper functions are part of the proxy contract, not optional polish: production code should implement size-limited body reads, DNS/private-network checks, redirect validation, and response limits in the concrete runtime it uses.
+The playground Worker is intentionally small. It is not trying to teach a complete proxy security model; it gives browser apps a same-origin route when an MCP server does not expose browser CORS.
+
+This is the shape:
 
 ```ts
-const MAX_REQUEST_BYTES = 1024 * 1024;
-const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
-
 export async function handleMcpProxy(request: Request): Promise<Response> {
   const target = request.headers.get("x-mcp-target-url");
   if (!target) {
@@ -56,127 +63,29 @@ export async function handleMcpProxy(request: Request): Promise<Response> {
   }
 
   const upstreamUrl = new URL(target);
-  if (upstreamUrl.protocol !== "https:") {
-    return new Response("Only https targets are allowed", { status: 400 });
-  }
-
-  if (!(await isPublicTarget(upstreamUrl))) {
-    return new Response("Local and private targets are not allowed", { status: 403 });
-  }
-
-  if (request.method === "GET") {
-    return new Response("SSE not enabled for this proxy", { status: 405 });
-  }
-
-  if (request.method !== "POST") {
-    return new Response("Method not allowed", { status: 405 });
-  }
-
-  if (!request.headers.get("content-type")?.includes("application/json")) {
-    return new Response("Only JSON-RPC MCP requests are allowed", { status: 415 });
-  }
-
-  const body = await readTextWithLimit(request, MAX_REQUEST_BYTES);
-  if (!isMcpJsonRpcBody(body)) {
-    return new Response("Request is not MCP JSON-RPC", { status: 400 });
-  }
-
-  const upstreamHeaders = new Headers();
-  copyHeader(request.headers, upstreamHeaders, "authorization");
-  copyHeader(request.headers, upstreamHeaders, "accept");
-  copyHeader(request.headers, upstreamHeaders, "content-type");
-  copyHeader(request.headers, upstreamHeaders, "mcp-protocol-version");
-  copyHeader(request.headers, upstreamHeaders, "mcp-session-id");
-
   const upstreamResponse = await fetch(upstreamUrl, {
-    method: "POST",
-    headers: upstreamHeaders,
-    body,
+    method: request.method,
+    headers: request.headers,
+    body: request.body,
     redirect: "manual",
     signal: AbortSignal.timeout(30_000),
   });
-  const responseBody = await readBodyWithLimit(upstreamResponse, MAX_RESPONSE_BYTES);
 
-  const responseHeaders = new Headers();
-  copyHeader(upstreamResponse.headers, responseHeaders, "content-type");
-  copyHeader(upstreamResponse.headers, responseHeaders, "www-authenticate");
-  copyHeader(upstreamResponse.headers, responseHeaders, "mcp-session-id");
-  copyHeader(upstreamResponse.headers, responseHeaders, "mcp-protocol-version");
-
-  return new Response(responseBody, {
-    status: upstreamResponse.status,
-    statusText: upstreamResponse.statusText,
-    headers: responseHeaders,
-  });
-}
-
-async function isPublicTarget(url: URL): Promise<boolean> {
-  // Resolve DNS and reject localhost, private IP ranges, link-local ranges,
-  // and cloud metadata addresses. Validate every redirect target if you
-  // choose to follow redirects. In production, avoid DNS rebinding by pinning
-  // the validated resolution into the outbound connection or by using a
-  // network egress layer that enforces the same private-network block.
-  return url.protocol === "https:" && !isLocalOrPrivateHost(url.hostname);
-}
-
-async function readTextWithLimit(request: Request, maxBytes: number): Promise<string> {
-  // Read the request stream while counting bytes. Return 413 when maxBytes is exceeded.
-  throw new Error("Implement request body size limit for your runtime.");
-}
-
-async function readBodyWithLimit(response: Response, maxBytes: number): Promise<Uint8Array> {
-  // Read or stream the upstream response while counting bytes. Abort when maxBytes is exceeded.
-  throw new Error("Implement response body size limit for your runtime.");
-}
-
-function isMcpJsonRpcBody(body: string): boolean {
-  try {
-    const parsed = JSON.parse(body);
-    const messages = Array.isArray(parsed) ? parsed : [parsed];
-
-    return messages.length > 0 && messages.every((message) => {
-      if (!message || message.jsonrpc !== "2.0") return false;
-      if (typeof message.method !== "string") return false;
-
-      return (
-        message.method === "initialize" ||
-        message.method === "ping" ||
-        message.method.startsWith("tools/") ||
-        message.method.startsWith("resources/") ||
-        message.method.startsWith("prompts/") ||
-        message.method.startsWith("completion/") ||
-        message.method.startsWith("logging/") ||
-        message.method.startsWith("notifications/")
-      );
-    });
-  } catch {
-    return false;
-  }
-}
-
-function copyHeader(from: Headers, to: Headers, name: string): void {
-  const value = from.get(name);
-  if (value) {
-    to.set(name, value);
-  }
+  return new Response(upstreamResponse.body, upstreamResponse);
 }
 ```
 
 Some runtimes require `duplex: "half"` when forwarding a streaming request body. If your framework buffers request bodies, forward the buffered body instead.
 
-## Security Checklist
+## Tightening The Proxy
 
-- Do not implement raw arbitrary forwarding. Require public HTTPS MCP targets and MCP-shaped JSON-RPC bodies.
-- Only allow `https:` upstream targets in production.
-- Resolve DNS and block localhost, private, link-local, and metadata IP ranges.
-- Disable redirects or validate every redirect target before following it.
-- Cap request body size.
-- Cap response size or stream with limits.
-- Set an upstream timeout.
-- Do not forward browser cookies upstream.
-- Do not log `Authorization`.
-- Strip hop-by-hop headers such as `connection`, `transfer-encoding`, and stale `content-length`.
-- Log target host, method, status, duration, and request id.
+If this becomes production infrastructure, choose the policy you actually want instead of copying the demo route blindly:
+
+- Whitelist the MCP servers your app supports.
+- Or run the MCP TypeScript SDK server-side and validate requests and responses as MCP traffic before forwarding.
+- Or keep a dynamic proxy, but add the normal controls for your runtime: target policy, DNS/private-network checks, redirect policy, request and response size limits, timeout handling, and logging that never records bearer tokens.
+
+The hook already omits browser cookies when it sends requests to the proxy. A production proxy should also avoid forwarding any headers that are not needed by MCP transport.
 
 Although the browser owns OAuth, the proxy still sees bearer tokens in transit. Treat it as trusted infrastructure.
 

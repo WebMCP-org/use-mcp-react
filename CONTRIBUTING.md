@@ -20,13 +20,14 @@ vp run validate:package
 
 This repo uses Vitest Browser Mode with Playwright and MSW for browser/OAuth behavior. Do not add jsdom tests for those paths.
 
+Browser screenshots and attachments are generated debug output and are ignored.
+
 ## Implementation Notes
 
 Before changing MCP, OAuth, React hook, or browser-test behavior, read:
 
 - `docs/reference/README.md`
-- `docs/prompts/tdd-implementation.md`
-- `AGENTS.md`
+- `AGENTS.md` in the repository root
 
 Keep `@modelcontextprotocol/sdk` as the runtime MCP implementation. Mock external HTTP boundaries with MSW; do not mock SDK internals or this library's own modules.
 
@@ -38,4 +39,4 @@ User-visible changes should include a Changeset:
 vp exec changeset
 ```
 
-The release workflow validates the package, versions through Changesets, and publishes through npm trusted publishing when configured for the canonical repository.
+The release workflow validates the package, versions through Changesets, and publishes through npm trusted publishing from `WebMCP-org/use-mcp-react`. See `docs/release.md`.

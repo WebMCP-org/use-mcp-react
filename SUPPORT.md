@@ -2,7 +2,11 @@
 
 ## Questions And Usage Help
 
-Use the repository issue tracker or discussion forum when available. Include:
+Use GitHub Issues for reproducible bugs:
+
+https://github.com/WebMCP-org/use-mcp-react/issues
+
+Include:
 
 - Package version
 - React version
