@@ -1,5 +1,5 @@
 <p align="center">
-  <img alt="use-mcp-react" src="./assets/use-mcp-react-card.svg" width="560">
+  <img alt="use-mcp-react" src="https://unpkg.com/use-mcp-react/assets/use-mcp-react-card.svg" width="560">
 </p>
 
 <h1 align="center">use-mcp-react</h1>
@@ -10,10 +10,7 @@
 
 <p align="center">
   <a href="https://www.npmjs.com/package/use-mcp-react"><img alt="npm package" src="https://img.shields.io/badge/npm-use--mcp--react-19e68c?logo=npm&logoColor=white"></a>
-  <img alt="Version 0.0.0" src="https://img.shields.io/badge/version-0.0.0-19e68c">
-  <a href="https://github.com/WebMCP-org/use-mcp-react/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/WebMCP-org/use-mcp-react/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="https://github.com/WebMCP-org/use-mcp-react/actions/workflows/react-compat.yml"><img alt="React Compatibility" src="https://github.com/WebMCP-org/use-mcp-react/actions/workflows/react-compat.yml/badge.svg"></a>
-  <a href="https://github.com/WebMCP-org/use-mcp-react/actions/workflows/codeql.yml"><img alt="CodeQL" src="https://github.com/WebMCP-org/use-mcp-react/actions/workflows/codeql.yml/badge.svg"></a>
+  <a href="https://www.npmjs.com/package/use-mcp-react"><img alt="npm version" src="https://img.shields.io/npm/v/use-mcp-react?color=19e68c"></a>
   <img alt="TypeScript types included" src="https://img.shields.io/badge/types-included-19e68c?logo=typescript&logoColor=white">
   <a href="https://github.com/WebMCP-org/use-mcp-react/blob/main/LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-19e68c"></a>
   <img alt="React 18 and 19" src="https://img.shields.io/badge/react-18%20%7C%2019-19e68c?logo=react&logoColor=white">
