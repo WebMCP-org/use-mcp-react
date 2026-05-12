@@ -19,7 +19,6 @@ Docs are local at `node_modules/vite-plus/docs` or online at https://viteplus.de
 - Use Vercel Labs `opensrc` for dependency and prior-art source: see `docs/agents/opensrc.md`.
 - Use Miguel's `maintainable-typescript` skill before implementation or review: see `docs/agents/maintainable-typescript.md`.
 - Read `docs/reference/README.md` before implementing MCP, OAuth, React hook, or browser-test behavior.
-- Use `docs/prompts/tdd-implementation.md` as the implementation prompt before starting the hook.
 - This repo intentionally uses Vitest Browser Mode with Playwright and MSW. Do not add jsdom tests for browser/OAuth behavior.
 - Do not write the hook implementation until the reference material and test harness have been reviewed.
 

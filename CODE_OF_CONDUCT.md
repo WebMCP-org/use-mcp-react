@@ -22,4 +22,4 @@ We are committed to a respectful, harassment-free project environment for everyo
 
 Maintainers may remove comments, close issues, block participants, or take other reasonable action to protect the project community.
 
-Report security-sensitive issues through `SECURITY.md`. For conduct issues, contact a project maintainer through the repository's normal maintainer contact path.
+Report security-sensitive issues through `SECURITY.md`. For conduct issues, contact a project maintainer through GitHub Issues or the maintainer profile listed in `CODEOWNERS`.

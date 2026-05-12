@@ -135,6 +135,14 @@ export type McpBearerAuthRequirement = {
   type: "bearer";
 };
 
+/**
+ * OAuth metadata was discovered, but the authorization server cannot produce a
+ * browser public client automatically.
+ *
+ * Apps should collect a pre-registered public `clientId` and reconnect with
+ * `oauth.clientId`. The hook still handles PKCE, state validation, token
+ * exchange, and MCP connection lifecycle after the client id is supplied.
+ */
 export type McpManualOAuthClientRequirement = {
   authorizationEndpoint?: string;
   issuer?: string;
@@ -281,19 +289,54 @@ export type UseMcpOptions = {
 
 export type AuthorizationTarget = Window;
 
+/**
+ * One-shot overrides for `connect`, `reconnect`, and `reauthorize` actions.
+ *
+ * These options are merged with the hook's current options for a single action
+ * call. Use them for user-entered credentials, a pre-opened OAuth popup, or a
+ * stronger OAuth reset than the default reconnect behavior.
+ */
 export type UseMcpActionOptions = Partial<UseMcpOptions> & {
+  /**
+   * Browser window to navigate after OAuth discovery prepares an authorization
+   * URL, or `"popup"` for a hook-owned popup opened during the user gesture.
+   */
   authorizationTarget?: AuthorizationTarget | "popup";
+  /**
+   * Clears stored OAuth client registration during `reauthorize`.
+   *
+   * Most apps should leave this false so Dynamic Client Registration results can
+   * be reused across authorization attempts.
+   */
   clearClient?: boolean;
+  /**
+   * Clears cached OAuth discovery metadata during `reauthorize`.
+   *
+   * Use this after server auth configuration changes or when debugging stale
+   * metadata.
+   */
   clearDiscovery?: boolean;
 };
 
+/**
+ * Result returned by async hook actions.
+ *
+ * Action failures are intentionally structured so UI code can branch without
+ * parsing exception text.
+ */
 export type McpActionResult =
   | { ok: true }
+  /** A requested hook-owned popup could not be opened by the browser. */
   | { ok: false; reason: "popup_blocked" }
+  /** `authorize` or `finishAuthorization` ran before an OAuth attempt existed. */
   | { ok: false; reason: "no_pending_authorization" }
+  /** The OAuth callback did not include a `state` parameter. */
   | { ok: false; reason: "missing_oauth_state" }
+  /** The OAuth callback state did not match the pending authorization attempt. */
   | { ok: false; reason: "oauth_state_mismatch" }
+  /** The current pending auth requirement is not an OAuth authorization flow. */
   | { ok: false; reason: "not_oauth" }
+  /** The action failed with an exception that callers may log or display. */
   | { ok: false; reason: "failed"; error: Error };
 
 /**
@@ -425,8 +468,17 @@ export type UseMcpResult = {
   transport: StreamableHTTPClientTransport | null;
 };
 
+/**
+ * Status of the initial MCP catalog load after initialize.
+ *
+ * Catalog failures do not necessarily close the MCP connection. A server can be
+ * `ready` while one catalog section is `partial` or `error`.
+ */
 export type CatalogStatus = "idle" | "loading" | "ready" | "partial" | "error";
 
+/**
+ * Per-section catalog errors captured when the MCP connection remains usable.
+ */
 export type CatalogErrors = {
   prompts?: unknown;
   resourceTemplates?: unknown;
@@ -434,6 +486,12 @@ export type CatalogErrors = {
   tools?: unknown;
 };
 
+/**
+ * Diagnostic snapshot of the initialized MCP server.
+ *
+ * Prefer the top-level hook state for app control flow. Use this profile for
+ * setup guidance, debug panes, and proof-of-life displays.
+ */
 export type McpServerProfile = {
   auth: McpAuthProfile;
   catalog: McpCatalogSnapshot;
@@ -443,6 +501,9 @@ export type McpServerProfile = {
   url: string;
 };
 
+/**
+ * Transport metadata observed from the Streamable HTTP MCP connection.
+ */
 export type McpTransportProfile = {
   endpoint: string;
   kind: "streamable-http";
@@ -450,6 +511,12 @@ export type McpTransportProfile = {
   sessionMode: "stateful" | "stateless" | "unknown";
 };
 
+/**
+ * Public auth classification for the initialized MCP server.
+ *
+ * This exposes stable diagnostics without requiring consumers to inspect SDK
+ * discovery internals.
+ */
 export type McpAuthProfile =
   | { mode: "none" }
   | {
@@ -469,6 +536,9 @@ export type McpAuthProfile =
       reason?: string;
     };
 
+/**
+ * Snapshot of all catalog sections loaded during initial connection.
+ */
 export type McpCatalogSnapshot = {
   prompts: McpCatalogSection<Prompt>;
   resourceTemplates: McpCatalogSection<ResourceTemplate>;
@@ -476,6 +546,9 @@ export type McpCatalogSnapshot = {
   tools: McpCatalogSection<Tool>;
 };
 
+/**
+ * One MCP catalog section and its pagination/error state.
+ */
 export type McpCatalogSection<Item> = {
   complete: boolean;
   error?: unknown;
@@ -483,6 +556,9 @@ export type McpCatalogSection<Item> = {
   nextCursor?: string;
 };
 
+/**
+ * Stable auth diagnostics for debug UI and playgrounds.
+ */
 export type McpAuthDiagnostics = {
   authorizationServerMetadataUrl?: string;
   issuer?: string;
@@ -554,6 +630,14 @@ const IDLE_STATE: UseMcpState = {
   transport: null,
 };
 
+/**
+ * Reads the current OAuth callback URL and delivers it to waiting hook
+ * instances.
+ *
+ * `targetOrigin` is used only for `window.opener.postMessage`. The
+ * `BroadcastChannel` delivery remains same-origin browser messaging and helps
+ * when providers or browsers make `window.opener` unavailable.
+ */
 export function handleMcpOAuthCallback(
   options: {
     closeWindow?: boolean;
@@ -599,6 +683,14 @@ function readMcpOAuthCallbackResult(
   };
 }
 
+/**
+ * Minimal React callback page for the default `/oauth/callback` route.
+ *
+ * Mount this component at the redirect URL configured with the authorization
+ * server. It posts the callback result to the opener and through
+ * `BroadcastChannel`, then renders a fallback page for browsers that cannot
+ * close the popup automatically.
+ */
 export function McpOAuthCallback(): ReactElement {
   const [result, setResult] = useState(() => readMcpOAuthCallbackResult());
   const handledCallbackRef = useRef(false);

@@ -9,7 +9,15 @@
     "oauth",
     "react"
   ],
+  "homepage": "https://github.com/WebMCP-org/use-mcp-react#readme",
+  "bugs": {
+    "url": "https://github.com/WebMCP-org/use-mcp-react/issues"
+  },
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/WebMCP-org/use-mcp-react.git"
+  },
   "files": [
     "CODE_OF_CONDUCT.md",
     "CONTRIBUTING.md",
@@ -36,12 +44,14 @@
     "test": "vp test",
     "check": "vp check",
     "fallow:audit": "fallow audit --base origin/main --ci --fail-on-issues",
-    "validate:package": "vp run build && npm pack --dry-run --ignore-scripts && publint && attw --pack . --profile esm-only",
+    "validate:package": "vp run build && vp run verify:packed-files && publint && attw --pack . --profile esm-only",
+    "verify:packed-files": "node scripts/verify-packed-files.mjs",
+    "verify:packed-consumer": "node scripts/verify-packed-consumer.mjs",
     "changeset:version": "changeset version && vp install --no-frozen-lockfile && vp fmt",
     "changeset:publish": "vp run validate:package && changeset publish",
     "prepublishOnly": "vp run validate:package",
     "prepare": "vp config",
-    "playground": "vp dev playground"
+    "playground": "vp run use-mcp-react-playground#dev"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0"

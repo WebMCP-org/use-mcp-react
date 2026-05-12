@@ -15,6 +15,14 @@ The browser remains the OAuth client:
 
 The proxy only forwards stateless MCP transport requests to public HTTPS upstream targets that pass its MCP target policy. A dynamic proxy does not need an exact list of MCP servers ahead of time; it applies that policy to each browser request.
 
+The repository playground includes a concrete proxy server route implementation:
+
+- Worker source: [`playground/worker/index.ts`](https://github.com/WebMCP-org/use-mcp-react/blob/main/playground/worker/index.ts)
+- Cloudflare Vite config: [`playground/vite.config.ts`](https://github.com/WebMCP-org/use-mcp-react/blob/main/playground/vite.config.ts)
+- Wrangler config: [`playground/wrangler.jsonc`](https://github.com/WebMCP-org/use-mcp-react/blob/main/playground/wrangler.jsonc)
+
+That same Worker also serves the playground Client ID Metadata Document at `/.well-known/oauth-client-metadata.json`; it is separate from the transport proxy route.
+
 ```tsx
 const mcp = useMcp({
   url: userEnteredMcpUrl,

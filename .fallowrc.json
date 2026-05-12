@@ -4,12 +4,13 @@
     "src/index.{ts,tsx,js,jsx}",
     "playground/src/main.{ts,tsx,js,jsx}",
     "playground/src/mcpProxyPolicy.{ts,tsx,js,jsx}",
+    "playground/worker/index.{ts,tsx,js,jsx}",
     "tests/browser/**/*.{test,spec}.{ts,tsx,js,jsx}",
     "vite.config.{ts,tsx,js,jsx}",
     "playground/vite.config.{ts,tsx,js,jsx}"
   ],
   "ignorePatterns": ["dist/**", "docs/reference/oauth-specs/**", "public/mockServiceWorker.js"],
-  "ignoreDependencies": ["@voidzero-dev/vite-plus-test", "bumpp", "opensrc"],
+  "ignoreDependencies": ["@voidzero-dev/vite-plus-test", "bumpp", "opensrc", "use-mcp-react"],
   "duplicates": {
     "ignore": ["tests/**"],
     "threshold": 0
