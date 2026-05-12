@@ -1,0 +1,9 @@
+{
+  "client_id": "http://localhost:5173/.well-known/oauth-client-metadata.json",
+  "client_name": "use-mcp-react dev client",
+  "client_uri": "http://localhost:5173",
+  "redirect_uris": ["http://localhost:5173/oauth/callback"],
+  "grant_types": ["authorization_code", "refresh_token"],
+  "response_types": ["code"],
+  "token_endpoint_auth_method": "none"
+}

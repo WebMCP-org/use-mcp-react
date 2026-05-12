@@ -1,0 +1,32 @@
+{
+  "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
+  "entry": [
+    "src/index.{ts,tsx,js,jsx}",
+    "playground/src/main.{ts,tsx,js,jsx}",
+    "playground/src/mcpProxyPolicy.{ts,tsx,js,jsx}",
+    "tests/browser/**/*.{test,spec}.{ts,tsx,js,jsx}",
+    "vite.config.{ts,tsx,js,jsx}",
+    "playground/vite.config.{ts,tsx,js,jsx}"
+  ],
+  "ignorePatterns": ["dist/**", "docs/reference/oauth-specs/**", "public/mockServiceWorker.js"],
+  "ignoreDependencies": ["@voidzero-dev/vite-plus-test", "bumpp", "opensrc"],
+  "duplicates": {
+    "ignore": ["tests/**"],
+    "threshold": 0
+  },
+  "health": {
+    "ignore": ["tests/**", "public/mockServiceWorker.js"],
+    // Current repo baseline after cleanup. The remaining high values are in the
+    // public hook state machine and browser playground/proxy orchestration,
+    // which need behavior-preserving extraction work under dedicated tests.
+    "maxCyclomatic": 60,
+    "maxCognitive": 53,
+    "maxCrap": 850
+  },
+  "rules": {
+    "unused-dependencies": "warn",
+    // Fallow does not currently count pnpm override consumers as catalog usage.
+    // This repo uses the vite catalog alias only through overrides.
+    "unused-catalog-entries": "off"
+  }
+}

@@ -1,0 +1,9 @@
+# Replace this with the SOC2 org's owning team if different.
+* @alexmnahas
+
+.github/** @alexmnahas
+.changeset/** @alexmnahas
+package.json @alexmnahas
+pnpm-lock.yaml @alexmnahas
+pnpm-workspace.yaml @alexmnahas
+vite.config.ts @alexmnahas

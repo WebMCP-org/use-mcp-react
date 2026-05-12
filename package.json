@@ -1,0 +1,89 @@
+{
+  "name": "use-mcp-react",
+  "version": "0.0.0",
+  "description": "React hooks for connecting browser apps to remote MCP servers.",
+  "keywords": [
+    "hooks",
+    "mcp",
+    "model-context-protocol",
+    "oauth",
+    "react"
+  ],
+  "license": "MIT",
+  "files": [
+    "CODE_OF_CONDUCT.md",
+    "CONTRIBUTING.md",
+    "dist",
+    "LICENSE",
+    "PRIVACY.md",
+    "README.md",
+    "SECURITY.md",
+    "SUPPORT.md"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "types": "./dist/index.d.mts",
+  "exports": {
+    ".": "./dist/index.mjs",
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "vp pack",
+    "dev": "vp pack --watch",
+    "test": "vp test",
+    "check": "vp check",
+    "fallow:audit": "fallow audit --base origin/main --ci --fail-on-issues",
+    "validate:package": "vp run build && npm pack --dry-run --ignore-scripts && publint && attw --pack . --profile esm-only",
+    "changeset:version": "changeset version && vp install --no-frozen-lockfile && vp fmt",
+    "changeset:publish": "vp run validate:package && changeset publish",
+    "prepublishOnly": "vp run validate:package",
+    "prepare": "vp config",
+    "playground": "vp dev playground"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0"
+  },
+  "devDependencies": {
+    "@arethetypeswrong/cli": "0.18.2",
+    "@changesets/cli": "2.29.8",
+    "@types/node": "^25.6.2",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@typescript/native-preview": "7.0.0-dev.20260509.2",
+    "@vitejs/plugin-react": "^6.0.1",
+    "@vitest/browser": "^4.1.5",
+    "bumpp": "^11.1.0",
+    "fallow": "2.70.0",
+    "msw": "^2.14.5",
+    "opensrc": "^0.7.2",
+    "playwright": "^1.59.1",
+    "publint": "0.3.20",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "typescript": "^6.0.3",
+    "vite-plus": "catalog:",
+    "vitest": "catalog:",
+    "vitest-browser-react": "^2.2.0"
+  },
+  "peerDependencies": {
+    "@types/react": "^18.0.0 || ^19.0.0",
+    "react": "^18.0.0 || ^19.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@types/react": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "packageManager": "pnpm@11.0.9",
+  "msw": {
+    "workerDirectory": [
+      "public"
+    ]
+  }
+}

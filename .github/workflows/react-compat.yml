@@ -1,0 +1,64 @@
+name: React Compatibility
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: "17 10 * * 1"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  react:
+    name: React ${{ matrix.react-version }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    continue-on-error: ${{ matrix.experimental }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - react-version: "18"
+            react-types-version: "18"
+            experimental: false
+          - react-version: "19"
+            react-types-version: "19"
+            experimental: false
+          - react-version: "canary"
+            react-types-version: "19"
+            experimental: true
+          - react-version: "experimental"
+            react-types-version: "19"
+            experimental: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Vite+
+        uses: voidzero-dev/setup-vp@ca1c46663915d6c1042ae23bd39ab85718bfb0fa # v1.10.0
+        with:
+          node-version: "24"
+          cache: true
+
+      - name: Install dependencies
+        run: vp install --frozen-lockfile
+
+      - name: Install React ${{ matrix.react-version }}
+        run: vp install -D react@${{ matrix.react-version }} react-dom@${{ matrix.react-version }} @types/react@${{ matrix.react-types-version }} @types/react-dom@${{ matrix.react-types-version }}
+
+      - name: Check
+        run: vp check
+
+      - name: Install Playwright browsers
+        run: vp exec playwright install --with-deps chromium
+
+      - name: Test
+        run: vp test
