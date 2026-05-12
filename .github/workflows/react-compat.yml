@@ -52,7 +52,7 @@ jobs:
         run: vp install --frozen-lockfile
 
       - name: Install React ${{ matrix.react-version }}
-        run: vp install -D react@${{ matrix.react-version }} react-dom@${{ matrix.react-version }} @types/react@${{ matrix.react-types-version }} @types/react-dom@${{ matrix.react-types-version }}
+        run: vp install -w -D react@${{ matrix.react-version }} react-dom@${{ matrix.react-version }} @types/react@${{ matrix.react-types-version }} @types/react-dom@${{ matrix.react-types-version }}
 
       - name: Check
         run: vp check
