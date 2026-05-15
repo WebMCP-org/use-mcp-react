@@ -9,7 +9,12 @@
     "vite.config.{ts,tsx,js,jsx}",
     "playground/vite.config.{ts,tsx,js,jsx}"
   ],
-  "ignorePatterns": ["dist/**", "docs/reference/oauth-specs/**", "public/mockServiceWorker.js"],
+  "ignorePatterns": [
+    "dist/**",
+    "docs/reference/oauth-specs/**",
+    "public/mockServiceWorker.js",
+    "tests/extension/extension/**"
+  ],
   "ignoreDependencies": ["@voidzero-dev/vite-plus-test", "bumpp", "opensrc", "use-mcp-react"],
   "duplicates": {
     "ignore": ["tests/**"],

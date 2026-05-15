@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "use-mcp-react Chrome Identity E2E",
+  "version": "1.0.0",
+  "minimum_chrome_version": "120",
+  "background": {
+    "service_worker": "background.mjs",
+    "type": "module"
+  },
+  "permissions": ["identity"],
+  "host_permissions": ["http://127.0.0.1/*"]
+}

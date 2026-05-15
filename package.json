@@ -52,7 +52,8 @@
     "changeset:publish": "vp run validate:package && changeset publish",
     "prepublishOnly": "vp run validate:package",
     "prepare": "vp config",
-    "playground": "vp run use-mcp-react-playground#dev"
+    "playground": "vp run use-mcp-react-playground#dev",
+    "test:extension": "node tests/extension/build-extension.mjs && node --test tests/extension/chrome-identity.e2e.test.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0"
@@ -60,6 +61,7 @@
   "devDependencies": {
     "@arethetypeswrong/cli": "0.18.2",
     "@changesets/cli": "2.29.8",
+    "@types/chrome": "^0.1.42",
     "@types/node": "^25.6.2",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
@@ -67,6 +69,7 @@
     "@vitejs/plugin-react": "^6.0.1",
     "@vitest/browser": "^4.1.5",
     "bumpp": "^11.1.0",
+    "esbuild": "^0.28.0",
     "fallow": "2.70.0",
     "msw": "^2.14.5",
     "opensrc": "^0.7.2",
