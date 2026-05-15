@@ -39,6 +39,7 @@ type RequestLogEntry = {
   contentType?: string | null;
   cookie?: string | null;
   grantType?: string;
+  initializeCapabilities?: unknown;
   jsonRpcMethod?: string;
   method: string;
   mcpProtocolVersion?: string | null;
@@ -84,7 +85,14 @@ export type OAuthMcpTestServer = {
   readonly tokenEndpoint: string;
   authorize(authorizationUrl: URL): string;
   expireAccessTokens(): void;
+  failCatalogMethods(methods: OAuthMcpTestServerOptions["failCatalogMethods"]): void;
   handlers: ReturnType<typeof http.all>[];
+  registerPrompt(name: string): void;
+  registerResource(uri: string): void;
+  registerTool(name: string): void;
+  sendPromptListChanged(): void;
+  sendResourceListChanged(): void;
+  sendToolListChanged(): void;
 };
 
 export function createOAuthMcpTestServer(
@@ -117,6 +125,10 @@ export function createOAuthMcpTestServer(
   const authorizationCodes = new Map<string, AuthorizationCode>();
   const accessTokens = new Map<string, AccessToken>();
   const refreshTokens = new Map<string, RefreshToken>();
+  const dynamicPrompts = new Set<string>();
+  const dynamicResources = new Set<string>();
+  const dynamicTools = new Set<string>();
+  let statefulMcpServer: McpServer | undefined;
 
   for (const client of options.preRegisteredClients ?? []) {
     clients.set(client.client_id, client);
@@ -193,6 +205,10 @@ export function createOAuthMcpTestServer(
             },
           ],
         }),
+        complete: {
+          profileId: (value) =>
+            ["current", "archived"].filter((profileId) => profileId.startsWith(value)),
+        },
       }),
       {
         title: "Profile by id",
@@ -234,6 +250,15 @@ export function createOAuthMcpTestServer(
         ],
       }),
     );
+    for (const toolName of dynamicTools) {
+      registerDynamicTool(mcpServer, toolName);
+    }
+    for (const resourceUri of dynamicResources) {
+      registerDynamicResource(mcpServer, resourceUri);
+    }
+    for (const promptName of dynamicPrompts) {
+      registerDynamicPrompt(mcpServer, promptName);
+    }
 
     return mcpServer;
   }
@@ -244,9 +269,13 @@ export function createOAuthMcpTestServer(
           sessionIdGenerator: () => crypto.randomUUID(),
         })
       : undefined;
-  const statefulConnected = statefulTransport
-    ? createMcpServer().connect(statefulTransport)
-    : undefined;
+  if (statefulTransport) {
+    statefulMcpServer = createMcpServer();
+  }
+  const statefulConnected =
+    statefulTransport && statefulMcpServer
+      ? statefulMcpServer.connect(statefulTransport)
+      : undefined;
 
   function logRequest(
     request: Request,
@@ -400,6 +429,15 @@ export function createOAuthMcpTestServer(
       typeof requestBody.method === "string"
     ) {
       logEntry.jsonRpcMethod = requestBody.method;
+      if (
+        requestBody.method === "initialize" &&
+        "params" in requestBody &&
+        typeof requestBody.params === "object" &&
+        requestBody.params !== null &&
+        "capabilities" in requestBody.params
+      ) {
+        logEntry.initializeCapabilities = requestBody.params.capabilities;
+      }
     }
   }
 
@@ -855,8 +893,98 @@ export function createOAuthMcpTestServer(
     tokenEndpoint,
     authorize,
     expireAccessTokens: () => accessTokens.clear(),
+    failCatalogMethods: (methods) => {
+      failCatalogMethods.clear();
+      for (const method of methods ?? []) {
+        failCatalogMethods.add(method);
+      }
+    },
     handlers,
+    registerPrompt: (name) => {
+      dynamicPrompts.add(name);
+      if (statefulMcpServer) {
+        registerDynamicPrompt(statefulMcpServer, name);
+      }
+    },
+    registerResource: (uri) => {
+      dynamicResources.add(uri);
+      if (statefulMcpServer) {
+        registerDynamicResource(statefulMcpServer, uri);
+      }
+    },
+    registerTool: (name) => {
+      dynamicTools.add(name);
+      if (statefulMcpServer) {
+        registerDynamicTool(statefulMcpServer, name);
+      }
+    },
+    sendPromptListChanged: () => {
+      statefulMcpServer?.sendPromptListChanged();
+    },
+    sendResourceListChanged: () => {
+      statefulMcpServer?.sendResourceListChanged();
+    },
+    sendToolListChanged: () => {
+      statefulMcpServer?.sendToolListChanged();
+    },
   };
+}
+
+function registerDynamicTool(mcpServer: McpServer, name: string): void {
+  mcpServer.registerTool(
+    name,
+    {
+      description: `Dynamic test tool ${name}.`,
+    },
+    () => ({
+      content: [
+        {
+          type: "text",
+          text: name,
+        },
+      ],
+    }),
+  );
+}
+
+function registerDynamicResource(mcpServer: McpServer, uri: string): void {
+  mcpServer.registerResource(
+    uri,
+    uri,
+    {
+      mimeType: "text/plain",
+      title: uri,
+    },
+    () => ({
+      contents: [
+        {
+          uri,
+          mimeType: "text/plain",
+          text: uri,
+        },
+      ],
+    }),
+  );
+}
+
+function registerDynamicPrompt(mcpServer: McpServer, name: string): void {
+  mcpServer.registerPrompt(
+    name,
+    {
+      description: `Dynamic test prompt ${name}.`,
+    },
+    () => ({
+      messages: [
+        {
+          role: "user",
+          content: {
+            type: "text",
+            text: name,
+          },
+        },
+      ],
+    }),
+  );
 }
 
 function normalizeOptionalPath(path: `/${string}` | undefined): "" | `/${string}` {

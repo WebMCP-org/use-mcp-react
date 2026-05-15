@@ -57,6 +57,7 @@ export default defineConfig({
       "@modelcontextprotocol/sdk/client/streamableHttp.js",
       "@modelcontextprotocol/sdk/server/mcp.js",
       "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js",
+      "@modelcontextprotocol/sdk/types.js",
       "react-dom/client",
     ],
   },

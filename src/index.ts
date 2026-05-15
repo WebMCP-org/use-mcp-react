@@ -1,14 +1,16 @@
 /// <reference types="chrome" />
 
 import { createElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ReactElement } from "react";
+import type { Dispatch, ReactElement, SetStateAction } from "react";
 import packageJson from "../package.json" with { type: "json" };
 import type {
   OAuthClientProvider,
   OAuthDiscoveryState,
 } from "@modelcontextprotocol/sdk/client/auth.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import type { ClientOptions } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import type { RequestOptions } from "@modelcontextprotocol/sdk/shared/protocol.js";
 import type {
   OAuthClientInformationMixed,
   OAuthClientMetadata,
@@ -18,13 +20,26 @@ import type {
 } from "@modelcontextprotocol/sdk/shared/auth.js";
 import type { FetchLike } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type {
+  CallToolRequest,
+  ClientCapabilities,
+  CompleteRequest,
+  CompleteResult,
+  GetPromptRequest,
+  GetPromptResult,
   Implementation,
   InitializeResult,
   Prompt,
+  ReadResourceRequest,
+  ReadResourceResult,
   Resource,
   ResourceTemplate,
   ServerCapabilities,
   Tool,
+} from "@modelcontextprotocol/sdk/types.js";
+import {
+  PromptListChangedNotificationSchema,
+  ResourceListChangedNotificationSchema,
+  ToolListChangedNotificationSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 
 export const MCP_OAUTH_CALLBACK_CHANNEL = "use-mcp-react:oauth-callback";
@@ -247,6 +262,22 @@ export type UseMcpOptions = {
    */
   bearerToken?: string;
   /**
+   * Client capabilities advertised during MCP initialize.
+   *
+   * This is a narrow convenience for host-layer capabilities. It is merged with
+   * `clientOptions.capabilities` when both are provided, including extension
+   * capability keys such as `extensions["io.modelcontextprotocol/ui"]`.
+   */
+  clientCapabilities?: ClientCapabilities;
+  /**
+   * SDK client options passed to `new Client(...)`.
+   *
+   * Use this for advanced SDK options such as strict capability enforcement,
+   * debounced notification methods, validators, task stores, or future MCP SDK
+   * options. `clientCapabilities` and `clientOptions.capabilities` are merged.
+   */
+  clientOptions?: ClientOptions;
+  /**
    * Gates browser side effects.
    *
    * Auto-connect is on by default when `url` is non-empty and parseable. Set this
@@ -343,6 +374,13 @@ export type McpActionResult =
   /** The action failed with an exception that callers may log or display. */
   | { ok: false; reason: "failed"; error: Error };
 
+export type McpOperationResult<Result> =
+  | { ok: true; result: Result }
+  | { ok: false; reason: "not_connected" }
+  | { ok: false; reason: "failed"; error: Error };
+
+export type McpCallToolResult = Awaited<ReturnType<Client["callTool"]>>;
+
 /**
  * Result returned by `useMcp`.
  *
@@ -384,6 +422,14 @@ export type UseMcpResult = {
    * Starts or retries a connection using the current options.
    */
   connect: (options?: UseMcpActionOptions) => Promise<McpActionResult>;
+  callTool: (
+    params: CallToolRequest["params"],
+    options?: RequestOptions,
+  ) => Promise<McpOperationResult<McpCallToolResult>>;
+  complete: (
+    params: CompleteRequest["params"],
+    options?: RequestOptions,
+  ) => Promise<McpOperationResult<CompleteResult>>;
   /**
    * Closes the active SDK client/transport without clearing loaded server
    * metadata or catalog arrays.
@@ -416,6 +462,10 @@ export type UseMcpResult = {
    * or not connected.
    */
   prompts: Prompt[];
+  getPrompt: (
+    params: GetPromptRequest["params"],
+    options?: RequestOptions,
+  ) => Promise<McpOperationResult<GetPromptResult>>;
   /**
    * Starts a fresh OAuth authorization attempt for this server.
    *
@@ -442,6 +492,10 @@ export type UseMcpResult = {
    * unsupported or not connected.
    */
   resources: Resource[];
+  readResource: (
+    params: ReadResourceRequest["params"],
+    options?: RequestOptions,
+  ) => Promise<McpOperationResult<ReadResourceResult>>;
   /**
    * Server capabilities reported by MCP initialize.
    */
@@ -857,7 +911,10 @@ export function useMcp(options: UseMcpOptions): UseMcpResult {
       closeHookOwnedPopup();
 
       let lastAuthenticateHeader: string | null = null;
-      const client = new Client({ name: "use-mcp-react", version: MCP_CLIENT_VERSION });
+      const client = new Client(
+        { name: "use-mcp-react", version: MCP_CLIENT_VERSION },
+        createClientOptions(connectionOptions),
+      );
       const oauthProviderKey = createOAuthProviderKey(url, connectionOptions);
       const oauthProvider = connectionOptions.bearerToken
         ? undefined
@@ -941,6 +998,15 @@ export function useMcp(options: UseMcpOptions): UseMcpResult {
           return { ok: true };
         }
         const serverCapabilities = client.getServerCapabilities() ?? null;
+        installCatalogListChangedHandlers({
+          client,
+          clientListChanged: connectionOptions.clientOptions?.listChanged,
+          generation,
+          getCurrentConnection: () => connectionRef.current,
+          getCurrentGeneration: () => connectionGenerationRef.current,
+          serverCapabilities,
+          setState,
+        });
         const serverVersion = client.getServerVersion() ?? null;
         const initialize = createInitializeResult(client, transport, {
           serverCapabilities,
@@ -1440,6 +1506,46 @@ export function useMcp(options: UseMcpOptions): UseMcpResult {
     [finishOAuthCallbackMessage, oauthPopupWindowName],
   );
 
+  const callTool = useCallback(
+    (params: CallToolRequest["params"], options?: RequestOptions) =>
+      runClientOperation((client) => client.callTool(params, undefined, options)),
+    [],
+  );
+  const readResource = useCallback(
+    (params: ReadResourceRequest["params"], options?: RequestOptions) =>
+      runClientOperation((client) => client.readResource(params, options)),
+    [],
+  );
+  const getPrompt = useCallback(
+    (params: GetPromptRequest["params"], options?: RequestOptions) =>
+      runClientOperation((client) => client.getPrompt(params, options)),
+    [],
+  );
+  const complete = useCallback(
+    (params: CompleteRequest["params"], options?: RequestOptions) =>
+      runClientOperation((client) => client.complete(params, options)),
+    [],
+  );
+
+  async function runClientOperation<Result>(
+    operation: (client: Client) => Promise<Result>,
+  ): Promise<McpOperationResult<Result>> {
+    const client = stateRef.current.client;
+    if (!client) {
+      return { ok: false, reason: "not_connected" };
+    }
+
+    try {
+      return { ok: true, result: await operation(client) };
+    } catch (cause) {
+      return {
+        ok: false,
+        reason: "failed",
+        error: cause instanceof Error ? cause : new Error(String(cause)),
+      };
+    }
+  }
+
   useEffect(() => {
     const finishFromMessage = (message: McpOAuthCallbackMessage) => {
       void finishOAuthCallbackMessage(message);
@@ -1469,6 +1575,8 @@ export function useMcp(options: UseMcpOptions): UseMcpResult {
 
   const oauthClientMetadataKey = stableSerializeOAuthClientMetadata(options.oauth?.clientMetadata);
   const bearerTokenKey = options.bearerToken;
+  const clientCapabilitiesKey = stableSerializeClientCapabilities(options.clientCapabilities);
+  const clientOptionsKey = stableSerializeClientOptions(options.clientOptions);
   const mcpUrlKey = stableSerializeUrlDependency(options.url);
   const redirectUrlKey = stableSerializeOAuthRedirectUrlDependency(options.oauth?.redirectUrl);
   const transportProxyKey = stableSerializeTransportProxyDependency(options.transportProxy);
@@ -1503,6 +1611,8 @@ export function useMcp(options: UseMcpOptions): UseMcpResult {
   }, [
     connectWithOptions,
     bearerTokenKey,
+    clientCapabilitiesKey,
+    clientOptionsKey,
     options.enabled,
     options.oauth?.clientId,
     oauthClientMetadataKey,
@@ -1520,19 +1630,23 @@ export function useMcp(options: UseMcpOptions): UseMcpResult {
       authDiagnostics: state.authDiagnostics,
       authorizationUrl: state.authorizationUrl,
       authorize,
+      callTool,
       catalogErrors: state.catalogErrors,
       catalogStatus: state.catalogStatus,
       client: state.client,
+      complete,
       connect,
       disconnect,
       error: state.error,
       finishAuthorization,
       forget,
+      getPrompt,
       prompts: state.prompts,
       reauthorize,
       reconnect,
       resourceTemplates: state.resourceTemplates,
       resources: state.resources,
+      readResource,
       serverCapabilities: state.serverCapabilities,
       serverProfile: state.serverProfile,
       serverVersion: state.serverVersion,
@@ -1540,7 +1654,20 @@ export function useMcp(options: UseMcpOptions): UseMcpResult {
       tools: state.tools,
       transport: state.transport,
     }),
-    [authorize, connect, disconnect, finishAuthorization, forget, reauthorize, reconnect, state],
+    [
+      authorize,
+      callTool,
+      complete,
+      connect,
+      disconnect,
+      finishAuthorization,
+      forget,
+      getPrompt,
+      readResource,
+      reauthorize,
+      reconnect,
+      state,
+    ],
   );
 }
 
@@ -1548,6 +1675,277 @@ function stableSerializeOAuthClientMetadata(
   clientMetadata: OAuthClientMetadata | undefined,
 ): string | undefined {
   return clientMetadata ? stableSerializeJsonValue(clientMetadata) : undefined;
+}
+
+function stableSerializeClientCapabilities(
+  clientCapabilities: ClientCapabilities | undefined,
+): string | undefined {
+  return clientCapabilities ? stableSerializeJsonValue(clientCapabilities) : undefined;
+}
+
+function stableSerializeClientOptions(
+  clientOptions: ClientOptions | undefined,
+): string | undefined {
+  return clientOptions ? stableSerializeJsonValue(clientOptions) : undefined;
+}
+
+function createClientOptions(connectionOptions: UseMcpActionOptions): ClientOptions | undefined {
+  const clientOptions = connectionOptions.clientOptions;
+  const capabilities = mergeClientCapabilities(
+    clientOptions?.capabilities,
+    connectionOptions.clientCapabilities,
+  );
+
+  if (!clientOptions && !capabilities) {
+    return undefined;
+  }
+
+  return {
+    ...clientOptions,
+    ...(capabilities ? { capabilities } : {}),
+  };
+}
+
+function mergeClientCapabilities(
+  left: ClientCapabilities | undefined,
+  right: ClientCapabilities | undefined,
+): ClientCapabilities | undefined {
+  if (!left) {
+    return right;
+  }
+  if (!right) {
+    return left;
+  }
+
+  return mergeRecords(left, right) as ClientCapabilities;
+}
+
+function mergeRecords(
+  left: Record<string, unknown>,
+  right: Record<string, unknown>,
+): Record<string, unknown> {
+  const merged: Record<string, unknown> = { ...left };
+
+  for (const [key, value] of Object.entries(right)) {
+    const current = merged[key];
+    merged[key] =
+      isPlainObject(current) && isPlainObject(value) ? mergeRecords(current, value) : value;
+  }
+
+  return merged;
+}
+
+function installCatalogListChangedHandlers(input: {
+  client: Client;
+  clientListChanged: ClientOptions["listChanged"] | undefined;
+  generation: number;
+  getCurrentConnection: () => Connection | null;
+  getCurrentGeneration: () => number;
+  serverCapabilities: ServerCapabilities | null;
+  setState: Dispatch<SetStateAction<UseMcpState>>;
+}): void {
+  if (input.serverCapabilities?.tools?.listChanged) {
+    input.client.setNotificationHandler(ToolListChangedNotificationSchema, () => {
+      void refreshCatalogSection({
+        ...input,
+        errorKey: "tools",
+        itemKey: "tools",
+        loadPage: (cursor) => input.client.listTools(cursor ? { cursor } : undefined),
+        selectItems: (state) => state.tools,
+        sectionKey: "tools",
+      }).then((result) => {
+        notifyListChangedHandler(input.clientListChanged?.tools, result);
+      });
+    });
+  }
+  if (input.serverCapabilities?.resources?.listChanged) {
+    input.client.setNotificationHandler(ResourceListChangedNotificationSchema, () => {
+      void refreshCatalogSection({
+        ...input,
+        errorKey: "resources",
+        itemKey: "resources",
+        loadPage: (cursor) => input.client.listResources(cursor ? { cursor } : undefined),
+        selectItems: (state) => state.resources,
+        sectionKey: "resources",
+      }).then((result) => {
+        notifyListChangedHandler(input.clientListChanged?.resources, result);
+      });
+    });
+  }
+  if (input.serverCapabilities?.prompts?.listChanged) {
+    input.client.setNotificationHandler(PromptListChangedNotificationSchema, () => {
+      void refreshCatalogSection({
+        ...input,
+        errorKey: "prompts",
+        itemKey: "prompts",
+        loadPage: (cursor) => input.client.listPrompts(cursor ? { cursor } : undefined),
+        selectItems: (state) => state.prompts,
+        sectionKey: "prompts",
+      }).then((result) => {
+        notifyListChangedHandler(input.clientListChanged?.prompts, result);
+      });
+    });
+  }
+}
+
+type CatalogRefreshResult<Item> =
+  | { ok: true; section: LoadedCatalogSection<Item> }
+  | { ok: false; error: unknown };
+
+async function refreshCatalogSection<
+  Item,
+  SectionKey extends keyof Pick<McpCatalogSnapshot, "prompts" | "resources" | "tools">,
+  ErrorKey extends keyof Pick<CatalogErrors, "prompts" | "resources" | "tools">,
+  ResultKey extends string,
+  Result extends { nextCursor?: string } & Record<ResultKey, Item[]>,
+>(input: {
+  client: Client;
+  errorKey: ErrorKey;
+  generation: number;
+  getCurrentConnection: () => Connection | null;
+  getCurrentGeneration: () => number;
+  itemKey: ResultKey;
+  loadPage: (cursor?: string) => Promise<Result>;
+  sectionKey: SectionKey;
+  selectItems: (state: UseMcpState) => Item[];
+  setState: Dispatch<SetStateAction<UseMcpState>>;
+}): Promise<CatalogRefreshResult<Item>> {
+  const loaded: CatalogRefreshResult<Item> = await loadCatalogSection<Item, ResultKey, Result>(
+    input.loadPage,
+    input.itemKey,
+  )
+    .then((section) => ({ ok: true as const, section }))
+    .catch((cause: unknown) => ({ ok: false as const, error: cause }));
+
+  if (
+    input.getCurrentGeneration() !== input.generation ||
+    input.getCurrentConnection()?.client !== input.client
+  ) {
+    return loaded;
+  }
+
+  input.setState((current) => {
+    if (current.client !== input.client || current.status !== "ready" || !current.serverProfile) {
+      return current;
+    }
+
+    const nextErrors = { ...current.catalogErrors };
+    const nextCatalog = { ...current.serverProfile.catalog };
+    if (loaded.ok) {
+      delete nextErrors[input.errorKey];
+      const currentItems = input.selectItems(current);
+      const nextItems = loaded.section.items;
+      const nextSection = createCatalogSectionFromLoaded(nextItems, loaded.section);
+      if (
+        current.catalogErrors[input.errorKey] === undefined &&
+        areJsonValuesEqual(currentItems, nextItems) &&
+        areJsonValuesEqual(current.serverProfile.catalog[input.sectionKey], nextSection)
+      ) {
+        return current;
+      }
+
+      nextCatalog[input.sectionKey] = nextSection as McpCatalogSnapshot[SectionKey];
+
+      return applyCatalogSectionState(
+        current,
+        input.sectionKey,
+        nextItems,
+        nextErrors,
+        nextCatalog,
+      );
+    }
+
+    nextErrors[input.errorKey] = loaded.error;
+    const currentItems = input.selectItems(current);
+    nextCatalog[input.sectionKey] = {
+      complete: false,
+      error: loaded.error,
+      items: currentItems,
+    } as McpCatalogSnapshot[SectionKey];
+
+    return applyCatalogSectionState(
+      current,
+      input.sectionKey,
+      currentItems,
+      nextErrors,
+      nextCatalog,
+    );
+  });
+
+  return loaded;
+}
+
+function notifyListChangedHandler<Item>(
+  handler:
+    | { autoRefresh?: boolean; onChanged: (error: Error | null, items: Item[] | null) => void }
+    | undefined,
+  result: CatalogRefreshResult<Item>,
+): void {
+  if (!handler) {
+    return;
+  }
+
+  if (handler.autoRefresh === false) {
+    handler.onChanged(null, null);
+    return;
+  }
+
+  if (result.ok) {
+    handler.onChanged(null, result.section.items);
+    return;
+  }
+
+  handler.onChanged(
+    result.error instanceof Error ? result.error : new Error(String(result.error)),
+    null,
+  );
+}
+
+function applyCatalogSectionState<
+  Item,
+  SectionKey extends keyof Pick<McpCatalogSnapshot, "prompts" | "resources" | "tools">,
+>(
+  current: UseMcpState,
+  sectionKey: SectionKey,
+  items: Item[],
+  catalogErrors: CatalogErrors,
+  catalog: McpCatalogSnapshot,
+): UseMcpState {
+  const catalogStatus = catalogStatusFromErrors(catalogErrors);
+  const serverProfile = current.serverProfile
+    ? {
+        ...current.serverProfile,
+        catalog,
+        fetchedAt: Date.now(),
+      }
+    : current.serverProfile;
+
+  return {
+    ...current,
+    catalogErrors,
+    catalogStatus,
+    serverProfile,
+    ...(sectionKey === "prompts" ? { prompts: items as Prompt[] } : {}),
+    ...(sectionKey === "resources" ? { resources: items as Resource[] } : {}),
+    ...(sectionKey === "tools" ? { tools: items as Tool[] } : {}),
+  };
+}
+
+function createCatalogSectionFromLoaded<Item>(
+  items: Item[],
+  loaded: LoadedCatalogSection<Item>,
+): McpCatalogSection<Item> {
+  return {
+    complete: loaded.complete,
+    items,
+    ...(loaded.nextCursor ? { nextCursor: loaded.nextCursor } : {}),
+  };
+}
+
+function catalogStatusFromErrors(errors: CatalogErrors): CatalogStatus {
+  const errorCount = Object.keys(errors).length;
+
+  return errorCount === 0 ? "ready" : errorCount === 4 ? "error" : "partial";
 }
 
 function mergeUseMcpActionOptions(
@@ -1603,6 +2001,9 @@ function authorizationServerMetadataUrlFor(authorizationServerUrl: URL | string)
 }
 
 function stableSerializeJsonValue(value: unknown): string {
+  if (typeof value === "function") {
+    return '"[Function]"';
+  }
   if (value === null || typeof value !== "object") {
     return JSON.stringify(value) ?? "null";
   }
@@ -1617,6 +2018,19 @@ function stableSerializeJsonValue(value: unknown): string {
     .sort()
     .map((key) => `${JSON.stringify(key)}:${stableSerializeJsonValue(record[key])}`)
     .join(",")}}`;
+}
+
+function areJsonValuesEqual(left: unknown, right: unknown): boolean {
+  return stableSerializeJsonValue(left) === stableSerializeJsonValue(right);
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    Object.getPrototypeOf(value) === Object.prototype
+  );
 }
 
 function normalizeMcpUrl(url: URL | string | null | undefined): URL | null {
