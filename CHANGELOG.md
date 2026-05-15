@@ -1,5 +1,11 @@
 # use-mcp-react
 
+## 0.2.0
+
+### Minor Changes
+
+- cc19602: Add automatic WebExtension OAuth handling for Chrome and Firefox-style extension identity APIs.
+
 ## 0.1.1
 
 ### Patch Changes
