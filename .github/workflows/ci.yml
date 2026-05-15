@@ -53,6 +53,9 @@ jobs:
       - name: Test
         run: vp test
 
+      - name: Test Chrome extension OAuth
+        run: vp run test:extension
+
       - name: Build library
         run: vp pack
 

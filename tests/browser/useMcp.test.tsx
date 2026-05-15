@@ -991,6 +991,85 @@ describe("useMcp", () => {
     await probe.unmount();
   });
 
+  it("uses the Firefox WebExtension identity API when it is available", async () => {
+    const server = createOAuthMcpTestServer({
+      transportMode: "stateless",
+    });
+    worker.use(...server.handlers);
+
+    const redirectUrl = "https://firefox-extension.example.invalid/oauth2";
+    const launchedAuthorizationUrls: string[] = [];
+    const originalBrowserDescriptor = Object.getOwnPropertyDescriptor(globalThis, "browser");
+    Object.defineProperty(globalThis, "browser", {
+      configurable: true,
+      value: {
+        identity: {
+          getRedirectURL: () => redirectUrl,
+          launchWebAuthFlow: async (details: { interactive?: boolean; url: string }) => {
+            launchedAuthorizationUrls.push(details.url);
+            expect(details.interactive).toBe(true);
+            const authorizationUrl = new URL(details.url);
+            const code = server.authorize(authorizationUrl);
+            const callbackUrl = new URL(redirectUrl);
+            callbackUrl.searchParams.set("code", code);
+            callbackUrl.searchParams.set("state", authorizationUrl.searchParams.get("state")!);
+
+            return callbackUrl.toString();
+          },
+        },
+        runtime: { id: "firefox-extension-id" },
+      },
+    });
+
+    try {
+      const probe = await renderHookProbe(
+        () => useMcp({ url: server.mcpUrl }),
+        (mcp) => ({
+          authorizationUrl: mcp.authorizationUrl?.toString(),
+          status: mcp.status,
+          toolNames: mcp.tools.map((tool) => tool.name),
+        }),
+      );
+
+      await vi.waitFor(() => {
+        expect(probe.result.current.status).toBe("pending_auth");
+      });
+
+      expect(probe.result.current.authorizationUrl?.toString()).toContain(
+        `redirect_uri=${encodeURIComponent(redirectUrl)}`,
+      );
+
+      await probe.act(() => probe.result.current.authorize());
+
+      await vi.waitFor(() => {
+        expect(probe.result.current.status).toBe("ready");
+      });
+
+      expect(launchedAuthorizationUrls).toEqual([expect.any(String)]);
+      expect(probe.result.current.tools.map((tool) => tool.name)).toContain("whoami");
+      expect(server.requestLog).toContainEqual(
+        expect.objectContaining({
+          method: "POST",
+          pathname: "/register",
+        }),
+      );
+      expect(server.requestLog).toContainEqual(
+        expect.objectContaining({
+          grantType: "authorization_code",
+          pathname: "/token",
+        }),
+      );
+
+      await probe.unmount();
+    } finally {
+      if (originalBrowserDescriptor) {
+        Object.defineProperty(globalThis, "browser", originalBrowserDescriptor);
+      } else {
+        Reflect.deleteProperty(globalThis, "browser");
+      }
+    }
+  });
+
   it("preserves pathful authorization server issuers and metadata URLs", async () => {
     const server = createOAuthMcpTestServer({
       authorizationServerPath: "/oauth2/default",

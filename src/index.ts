@@ -1,3 +1,5 @@
+/// <reference types="chrome" />
+
 import { createElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactElement } from "react";
 import packageJson from "../package.json" with { type: "json" };
@@ -208,8 +210,10 @@ export type UseMcpOAuthOptions = {
   /**
    * OAuth callback URL registered with the authorization server.
    *
-   * Defaults to `/oauth/callback` on the current browser origin. Manual client
-   * registration must use the exact same redirect URI.
+   * Defaults to `/oauth/callback` on the current browser origin, or to the
+   * WebExtension Identity API redirect URL inside extensions that expose
+   * `browser.identity` or `chrome.identity`. Manual client registration must use
+   * the exact same redirect URI.
    */
   redirectUrl?: URL | string;
 };
@@ -582,6 +586,28 @@ type Connection = {
   transport: StreamableHTTPClientTransport;
 };
 
+type ExtensionIdentityOAuthApi = {
+  getRedirectURL: () => string;
+  launchWebAuthFlow: (authorizationUrl: URL) => Promise<string | undefined>;
+};
+
+type ExtensionIdentityAuthorizationResult =
+  | { message: McpOAuthCallbackMessage; ok: true }
+  | Extract<McpActionResult, { ok: false; reason: "failed" }>;
+
+type FirefoxWebExtensionIdentityApi = {
+  identity?: {
+    getRedirectURL?: () => string;
+    launchWebAuthFlow?: (details: {
+      interactive?: boolean;
+      url: string;
+    }) => Promise<string | undefined>;
+  };
+  runtime?: {
+    id?: string;
+  };
+};
+
 type PendingOAuthConnection = {
   connection: Connection;
   options: UseMcpActionOptions;
@@ -665,8 +691,19 @@ function readMcpOAuthCallbackResult(
     closeWindow?: boolean;
   } = {},
 ): McpOAuthCallbackResult {
-  const params = new URLSearchParams(window.location.search);
-  const message: McpOAuthCallbackMessage = {
+  const message = readOAuthCallbackMessageFromUrl(new URL(window.location.href));
+  const shouldClose = options.closeWindow !== false && !message.error;
+
+  return {
+    closeWindow: shouldClose,
+    message,
+  };
+}
+
+function readOAuthCallbackMessageFromUrl(callbackUrl: URL): McpOAuthCallbackMessage {
+  const params = oauthCallbackParameters(callbackUrl);
+
+  return {
     ...(params.get("code") ? { code: params.get("code")! } : {}),
     ...(params.get("error") ? { error: params.get("error")! } : {}),
     ...(params.get("error_description")
@@ -674,12 +711,6 @@ function readMcpOAuthCallbackResult(
       : {}),
     ...(params.get("state") ? { state: params.get("state")! } : {}),
     type: "use-mcp-react:oauth-callback",
-  };
-  const shouldClose = options.closeWindow !== false && !message.error;
-
-  return {
-    closeWindow: shouldClose,
-    message,
   };
 }
 
@@ -841,7 +872,7 @@ export function useMcp(options: UseMcpOptions): UseMcpResult {
       if (!existingOAuthProvider) {
         oauthProvider?.clearAuthenticationChallenge();
       }
-      const authorizationTargetResult = prepareAuthorizationTarget(
+      const authorizationTargetResult = prepareOAuthAuthorizationTarget(
         oauthProvider,
         connectionOptions.authorizationTarget,
         oauthPopupWindowName,
@@ -1194,41 +1225,30 @@ export function useMcp(options: UseMcpOptions): UseMcpResult {
     setState(IDLE_STATE);
     return { ok: true };
   }, [closeHookOwnedPopup]);
-  const authorize = useCallback(
-    async (options?: { target?: AuthorizationTarget | "popup" }): Promise<McpActionResult> => {
-      const authorizationUrl = stateRef.current.authorizationUrl;
-      if (!authorizationUrl) {
-        return { ok: false, reason: "no_pending_authorization" };
+
+  const failPendingOAuthConnection = useCallback(
+    async (pendingOAuthConnection: PendingOAuthConnection, error: Error): Promise<void> => {
+      if (pendingOAuthConnectionRef.current !== pendingOAuthConnection) {
+        return;
       }
 
-      const requestedTarget = options?.target;
-      if (requestedTarget && requestedTarget !== "popup") {
-        requestedTarget.location.href = authorizationUrl.toString();
-        requestedTarget.focus();
-        return { ok: true };
+      pendingOAuthConnectionRef.current = null;
+      pendingOAuthFinishPromiseRef.current = null;
+      if (connectionRef.current === pendingOAuthConnection.connection) {
+        connectionRef.current = null;
       }
-
-      const popup = popupRef.current;
-      if (popup && !popup.closed) {
-        popup.focus();
-        return { ok: true };
-      }
-
-      const openedPopup = window.open(
-        authorizationUrl.toString(),
-        oauthPopupWindowName(),
-        "width=600,height=700,resizable=yes,scrollbars=yes,status=yes",
-      );
-      if (!openedPopup) {
-        return { ok: false, reason: "popup_blocked" };
-      }
-      popupRef.current = openedPopup;
-      popupOwnedByHookRef.current = true;
-      openedPopup.focus();
-      return { ok: true };
+      closeHookOwnedPopup();
+      await pendingOAuthConnection.provider.invalidateCredentials("verifier");
+      await closeConnection(pendingOAuthConnection.connection);
+      setState({
+        ...IDLE_STATE,
+        error,
+        status: "failed",
+      });
     },
-    [oauthPopupWindowName],
+    [closeHookOwnedPopup],
   );
+
   const finishAuthorization = useCallback(
     async (authorizationCode: string, state: string): Promise<McpActionResult> => {
       const existingFinish = pendingOAuthFinishPromiseRef.current;
@@ -1322,38 +1342,107 @@ export function useMcp(options: UseMcpOptions): UseMcpResult {
     [connectWithOptions],
   );
 
-  useEffect(() => {
-    const finishFromMessage = (message: McpOAuthCallbackMessage) => {
+  const finishOAuthCallbackMessage = useCallback(
+    async (
+      message: McpOAuthCallbackMessage,
+      options: { failOnInvalidCallback?: boolean } = {},
+    ): Promise<McpActionResult> => {
       const pendingOAuthConnection = pendingOAuthConnectionRef.current;
       const expectedState = pendingOAuthConnection?.provider.pendingState();
-      if (!pendingOAuthConnection || !expectedState || message.state !== expectedState) {
-        return;
+      if (!pendingOAuthConnection || !expectedState) {
+        return { ok: true };
+      }
+      if (!message.state) {
+        if (options.failOnInvalidCallback) {
+          await failPendingOAuthConnection(
+            pendingOAuthConnection,
+            new Error("OAuth callback did not include a state."),
+          );
+          return { ok: false, reason: "missing_oauth_state" };
+        }
+        return { ok: true };
+      }
+      if (message.state !== expectedState) {
+        return options.failOnInvalidCallback
+          ? { ok: false, reason: "oauth_state_mismatch" }
+          : { ok: true };
       }
 
       if (message.error) {
-        pendingOAuthConnectionRef.current = null;
-        pendingOAuthFinishPromiseRef.current = null;
-        if (connectionRef.current === pendingOAuthConnection.connection) {
-          connectionRef.current = null;
-        }
-        closeHookOwnedPopup();
-        void (async () => {
-          await pendingOAuthConnection.provider.invalidateCredentials("verifier");
-          await closeConnection(pendingOAuthConnection.connection);
-          setState({
-            ...IDLE_STATE,
-            error: new Error(message.errorDescription ?? message.error),
-            status: "failed",
-          });
-        })();
-        return;
+        const error = new Error(message.errorDescription ?? message.error);
+        await failPendingOAuthConnection(pendingOAuthConnection, error);
+        return { ok: false, reason: "failed", error };
       }
 
       if (!message.code) {
-        return;
+        if (options.failOnInvalidCallback) {
+          const error = new Error("OAuth callback did not include an authorization code.");
+          await failPendingOAuthConnection(pendingOAuthConnection, error);
+          return { ok: false, reason: "failed", error };
+        }
+        return { ok: true };
       }
 
-      void finishAuthorization(message.code, message.state);
+      return finishAuthorization(message.code, message.state);
+    },
+    [failPendingOAuthConnection, finishAuthorization],
+  );
+
+  const authorize = useCallback(
+    async (options?: { target?: AuthorizationTarget | "popup" }): Promise<McpActionResult> => {
+      const authorizationUrl = stateRef.current.authorizationUrl;
+      if (!authorizationUrl) {
+        return { ok: false, reason: "no_pending_authorization" };
+      }
+
+      const pendingOAuthConnection = pendingOAuthConnectionRef.current;
+      if (pendingOAuthConnection?.provider.supportsExtensionIdentityAuthorization() === true) {
+        const extensionIdentityAuthorizationResult =
+          await pendingOAuthConnection.provider.authorizeWithExtensionIdentity(authorizationUrl);
+        if (pendingOAuthConnectionRef.current !== pendingOAuthConnection) {
+          return { ok: true };
+        }
+        if (!extensionIdentityAuthorizationResult.ok) {
+          return extensionIdentityAuthorizationResult;
+        }
+
+        return finishOAuthCallbackMessage(extensionIdentityAuthorizationResult.message, {
+          failOnInvalidCallback: true,
+        });
+      }
+
+      const requestedTarget = options?.target;
+      if (requestedTarget && requestedTarget !== "popup") {
+        requestedTarget.location.href = authorizationUrl.toString();
+        requestedTarget.focus();
+        return { ok: true };
+      }
+
+      const popup = popupRef.current;
+      if (popup && !popup.closed) {
+        popup.focus();
+        return { ok: true };
+      }
+
+      const openedPopup = window.open(
+        authorizationUrl.toString(),
+        oauthPopupWindowName(),
+        "width=600,height=700,resizable=yes,scrollbars=yes,status=yes",
+      );
+      if (!openedPopup) {
+        return { ok: false, reason: "popup_blocked" };
+      }
+      popupRef.current = openedPopup;
+      popupOwnedByHookRef.current = true;
+      openedPopup.focus();
+      return { ok: true };
+    },
+    [finishOAuthCallbackMessage, oauthPopupWindowName],
+  );
+
+  useEffect(() => {
+    const finishFromMessage = (message: McpOAuthCallbackMessage) => {
+      void finishOAuthCallbackMessage(message);
     };
 
     const handleWindowMessage = (event: MessageEvent<unknown>) => {
@@ -1376,7 +1465,7 @@ export function useMcp(options: UseMcpOptions): UseMcpResult {
       channel.close();
       window.removeEventListener("message", handleWindowMessage);
     };
-  }, [closeHookOwnedPopup, finishAuthorization]);
+  }, [finishOAuthCallbackMessage]);
 
   const oauthClientMetadataKey = stableSerializeOAuthClientMetadata(options.oauth?.clientMetadata);
   const bearerTokenKey = options.bearerToken;
@@ -2549,22 +2638,29 @@ class PendingOAuthProvider implements OAuthClientProvider {
   private verifier: string | undefined;
   private usedClientMetadataDocument = false;
   private usedDynamicClientRegistration = false;
+  private readonly extensionIdentityOAuthApi: ExtensionIdentityOAuthApi | null;
 
   constructor(
     serverUrl: URL,
     oauthOptions: UseMcpOAuthOptions = {},
     storage: McpStorage | null = null,
   ) {
-    this.redirectUrl = resolveOAuthRedirectUrl(oauthOptions.redirectUrl);
+    this.extensionIdentityOAuthApi = oauthOptions.redirectUrl
+      ? null
+      : getExtensionIdentityOAuthApi();
+    this.redirectUrl = resolveOAuthRedirectUrl(
+      oauthOptions.redirectUrl,
+      this.extensionIdentityOAuthApi,
+    );
     this.clientMetadataUrl = oauthOptions.clientMetadataUrl;
     this.storage = storage;
     this.clientMetadata = {
       client_name: "use-mcp-react browser client",
       grant_types: ["authorization_code", "refresh_token"],
-      redirect_uris: [this.redirectUrl],
       response_types: ["code"],
       token_endpoint_auth_method: "none",
       ...oauthOptions.clientMetadata,
+      redirect_uris: [this.redirectUrl],
     };
     this.client = oauthOptions.clientId
       ? {
@@ -2778,6 +2874,44 @@ class PendingOAuthProvider implements OAuthClientProvider {
     this.target = target;
   }
 
+  supportsExtensionIdentityAuthorization(): boolean {
+    return this.extensionIdentityOAuthApi !== null;
+  }
+
+  async authorizeWithExtensionIdentity(
+    authorizationUrl: URL,
+  ): Promise<ExtensionIdentityAuthorizationResult> {
+    const extensionIdentityOAuthApi = this.extensionIdentityOAuthApi;
+    if (!extensionIdentityOAuthApi) {
+      return {
+        ok: false,
+        reason: "failed",
+        error: new Error("Extension Identity API is not available."),
+      };
+    }
+
+    let responseUrl: string | undefined;
+    try {
+      responseUrl = await extensionIdentityOAuthApi.launchWebAuthFlow(authorizationUrl);
+    } catch (cause) {
+      return {
+        ok: false,
+        reason: "failed",
+        error: cause instanceof Error ? cause : new Error(String(cause)),
+      };
+    }
+
+    if (!responseUrl) {
+      return {
+        ok: false,
+        reason: "failed",
+        error: new Error("Extension Identity API did not return an OAuth callback URL."),
+      };
+    }
+
+    return { ok: true, message: readOAuthCallbackMessageFromUrl(new URL(responseUrl)) };
+  }
+
   private rememberRegistrationStrategy(clientInformation: OAuthClientInformationMixed): void {
     this.usedClientMetadataDocument =
       Boolean(this.clientMetadataUrl) && clientInformation.client_id === this.clientMetadataUrl;
@@ -2821,13 +2955,107 @@ function prepareAuthorizationTarget(
   return { ok: true, ownsTarget: false, target: authorizationTarget };
 }
 
+function prepareOAuthAuthorizationTarget(
+  provider: PendingOAuthProvider | undefined,
+  authorizationTarget: UseMcpActionOptions["authorizationTarget"],
+  popupWindowName: () => string,
+): PreparedAuthorizationTargetResult {
+  if (provider?.supportsExtensionIdentityAuthorization()) {
+    return { ok: true };
+  }
+
+  return prepareAuthorizationTarget(provider, authorizationTarget, popupWindowName);
+}
+
 function createOAuthPopupWindowName(): string {
   return `use-mcp-react-oauth-${crypto.randomUUID()}`;
 }
 
-function resolveOAuthRedirectUrl(redirectUrl: URL | string | undefined): string {
+function getExtensionIdentityOAuthApi(): ExtensionIdentityOAuthApi | null {
+  return getFirefoxWebExtensionIdentityOAuthApi() ?? getChromeExtensionIdentityOAuthApi();
+}
+
+function getFirefoxWebExtensionIdentityOAuthApi(): ExtensionIdentityOAuthApi | null {
+  const firefoxBrowserGlobal = globalThis as typeof globalThis & {
+    browser?: FirefoxWebExtensionIdentityApi;
+  };
+  const firefoxIdentity = firefoxBrowserGlobal.browser?.identity;
+  if (
+    !firefoxBrowserGlobal.browser?.runtime?.id ||
+    typeof firefoxIdentity?.getRedirectURL !== "function" ||
+    typeof firefoxIdentity.launchWebAuthFlow !== "function"
+  ) {
+    return null;
+  }
+
+  return {
+    getRedirectURL: () => firefoxIdentity.getRedirectURL!(),
+    launchWebAuthFlow: (authorizationUrl) =>
+      firefoxIdentity.launchWebAuthFlow!({
+        interactive: true,
+        url: authorizationUrl.toString(),
+      }),
+  };
+}
+
+function getChromeExtensionIdentityOAuthApi(): ExtensionIdentityOAuthApi | null {
+  const chromeGlobal = typeof chrome === "undefined" ? undefined : chrome;
+  if (
+    !chromeGlobal?.runtime?.id ||
+    typeof chromeGlobal.identity?.getRedirectURL !== "function" ||
+    typeof chromeGlobal.identity.launchWebAuthFlow !== "function"
+  ) {
+    return null;
+  }
+
+  return {
+    getRedirectURL: () => chromeGlobal.identity.getRedirectURL(),
+    launchWebAuthFlow: (authorizationUrl) =>
+      launchChromeWebAuthFlow(chromeGlobal, authorizationUrl),
+  };
+}
+
+function launchChromeWebAuthFlow(
+  chromeExtensionOAuthApi: Pick<typeof chrome, "identity" | "runtime">,
+  authorizationUrl: URL,
+): Promise<string | undefined> {
+  return new Promise((resolve, reject) => {
+    chromeExtensionOAuthApi.identity.launchWebAuthFlow(
+      {
+        interactive: true,
+        url: authorizationUrl.toString(),
+      },
+      (responseUrl) => {
+        const lastError = chromeExtensionOAuthApi.runtime.lastError;
+        if (lastError) {
+          reject(new Error(lastError.message));
+          return;
+        }
+
+        resolve(responseUrl);
+      },
+    );
+  });
+}
+
+function oauthCallbackParameters(callbackUrl: URL): URLSearchParams {
+  if (callbackUrl.searchParams.size > 0) {
+    return callbackUrl.searchParams;
+  }
+
+  return new URLSearchParams(callbackUrl.hash.startsWith("#") ? callbackUrl.hash.slice(1) : "");
+}
+
+function resolveOAuthRedirectUrl(
+  redirectUrl: URL | string | undefined,
+  extensionIdentityOAuthApi = getExtensionIdentityOAuthApi(),
+): string {
   const origin = typeof window === "undefined" ? "http://localhost" : window.location.origin;
   if (!redirectUrl) {
+    if (extensionIdentityOAuthApi) {
+      return extensionIdentityOAuthApi.getRedirectURL();
+    }
+
     return `${origin}/oauth/callback`;
   }
 
