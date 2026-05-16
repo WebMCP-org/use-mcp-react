@@ -141,6 +141,86 @@ describe("playground", () => {
     expect(document.querySelector(".catalog-column")?.textContent).toContain("whoami");
   });
 
+  it("renders MCP Apps advertised by a connected remote server", async () => {
+    const appMessages: unknown[] = [];
+    const appMessageListener = (event: MessageEvent) => {
+      if (event.data?.type === "playground-mcp-app-ready") {
+        appMessages.push(event.data);
+      }
+    };
+    window.addEventListener("message", appMessageListener);
+
+    const server = createOAuthMcpTestServer({
+      appResources: [
+        {
+          html: `
+            <script>
+              let initialized = false;
+
+              window.addEventListener("message", (event) => {
+                if (event.data?.id === 1 && !initialized) {
+                  initialized = true;
+                  window.parent.postMessage({
+                    jsonrpc: "2.0",
+                    method: "ui/notifications/initialized"
+                  }, "*");
+                  window.parent.postMessage({ type: "playground-mcp-app-ready" }, "*");
+                }
+              });
+
+              window.setInterval(() => {
+                if (initialized) return;
+                window.parent.postMessage({
+                  id: 1,
+                  jsonrpc: "2.0",
+                  method: "ui/initialize",
+                  params: {
+                    appCapabilities: {},
+                    appInfo: { name: "playground-app", version: "0.0.0" },
+                    protocolVersion: "2026-01-26"
+                  }
+                }, "*");
+              }, 20);
+            </script>
+          `,
+          uri: "ui://weather/playground-app.html",
+        },
+      ],
+      requireAuth: false,
+      transportMode: "stateless",
+    });
+    server.registerTool("show-weather-dashboard", {
+      metadata: {
+        ui: {
+          resourceUri: "ui://weather/playground-app.html",
+        },
+      },
+    });
+    worker.use(...server.handlers);
+
+    try {
+      await render(<App />);
+
+      await page.getByLabelText("MCP URL").fill(server.mcpUrl);
+      await page.getByRole("button", { exact: true, name: "Connect" }).click();
+
+      await waitForProofStatus("Ready");
+
+      await expect.element(page.getByRole("region", { name: "MCP Apps" })).toBeVisible();
+      await vi.waitFor(() => {
+        const iframe = document.querySelector<HTMLIFrameElement>(
+          'iframe[title="show-weather-dashboard MCP App"]',
+        );
+        expect(iframe?.getAttribute("src")).toMatch(/^data:text\/html/);
+      });
+      await vi.waitFor(() => {
+        expect(appMessages).toContainEqual({ type: "playground-mcp-app-ready" });
+      });
+    } finally {
+      window.removeEventListener("message", appMessageListener);
+    }
+  });
+
   it("shows auth-specific setup recommendations", async () => {
     const server = createOAuthMcpTestServer({
       advertiseOAuth: false,

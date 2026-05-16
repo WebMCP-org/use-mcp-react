@@ -9,6 +9,8 @@ const allowedPaths = new Set([
   "README.md",
   "SECURITY.md",
   "SUPPORT.md",
+  "dist/apps.d.mts",
+  "dist/apps.mjs",
   "dist/index.d.mts",
   "dist/index.mjs",
   "package.json",

@@ -48,6 +48,13 @@ React is a peer dependency. TypeScript projects that do not already include Reac
 npm install -D @types/react
 ```
 
+MCP Apps host rendering is available from the optional `use-mcp-react/apps`
+subpath. Install the upstream MCP Apps runtime when you import that subpath:
+
+```bash
+npm install use-mcp-react @modelcontextprotocol/ext-apps react
+```
+
 ## Quick Start
 
 Mount the OAuth callback route once in your app:
@@ -102,6 +109,50 @@ export function McpConnection({ url }: { url: string }) {
 ```
 
 Browser popups must be opened from a user gesture. Mount-time auto-connect can discover OAuth and prepare `authorizationUrl`, but your UI should call `authorize`, `connect`, `reconnect`, or `reauthorize` from a button/form submit when it needs a popup.
+
+## MCP Apps
+
+`use-mcp-react/apps` provides the browser host helpers for MCP Apps. The hook
+still owns auth, token refresh, DCR, transport setup, and the authorized MCP
+SDK client. `McpAppView` uses that connected client to read a `ui://` resource,
+render the returned `text/html;profile=mcp-app` HTML in a sandboxed iframe, and
+forward iframe tool calls through the parent client.
+
+```tsx
+import { useMcp } from "use-mcp-react";
+import {
+  createMcpAppClientCapabilities,
+  getMcpAppResourceUri,
+  McpAppView,
+} from "use-mcp-react/apps";
+
+export function McpAppHost({ url }: { url: string }) {
+  const mcp = useMcp({
+    clientCapabilities: createMcpAppClientCapabilities(),
+    url,
+  });
+
+  if (mcp.status !== "ready" || !mcp.client) {
+    return null;
+  }
+
+  const appTool = mcp.tools.find((tool) => getMcpAppResourceUri(tool));
+  const appUri = appTool ? getMcpAppResourceUri(appTool) : undefined;
+
+  return appUri ? <McpAppView client={mcp.client} tools={mcp.tools} uri={appUri} /> : null;
+}
+```
+
+The iframe does not receive OAuth access tokens. Server tool calls from the app
+are proxied through the already-authorized parent MCP client, and model-only
+tools are rejected by the default forwarding policy.
+
+Chrome extensions should render MCP App HTML through a manifest-declared
+sandbox page and pass that page as `sandboxUrl`, for example
+`chrome.runtime.getURL("sandbox.html")`. The sandbox page should follow the
+MCP Apps sandbox proxy protocol: relay iframe messages and accept
+`ui/notifications/sandbox-resource-ready` from the parent bridge, keeping
+extension APIs and OAuth tokens in the parent page.
 
 ## Runtime Connection Pattern
 
@@ -408,11 +459,13 @@ Or run it locally:
 vp run playground
 ```
 
-The playground includes presets for unauthenticated, OAuth, bearer-token, and manual-client scenarios. Remote presets use an app-owned transport proxy for MCP transport requests; OAuth remains browser-owned.
+The playground includes presets for unauthenticated, OAuth, bearer-token, and manual-client scenarios, including Canva's hosted remote MCP endpoint. Remote presets use an app-owned transport proxy for MCP transport requests; OAuth remains browser-owned.
 
 The deployed playground ships its React SPA and `/api/mcp-proxy` backend together. The proxy exists for servers such as Stripe whose MCP transport endpoint does not expose browser CORS. See [`playground/worker/index.ts`](https://github.com/WebMCP-org/use-mcp-react/blob/main/playground/worker/index.ts) and [transport proxy mode](https://github.com/WebMCP-org/use-mcp-react/blob/main/docs/reference/transport-proxy-mode.md).
 
 It also serves a Client ID Metadata Document at `/.well-known/oauth-client-metadata.json`. The document includes `client_id` equal to that full URL, which authorization servers require when they validate URL-based client ids. Use the playground CIMD toggle to pass that URL as `oauth.clientMetadataUrl` and demonstrate URL-based public OAuth client ids.
+
+The playground advertises MCP Apps support and renders any upstream tool UI resource it discovers with `McpAppView`.
 
 ## Development
 

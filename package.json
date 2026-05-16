@@ -34,6 +34,7 @@
   "types": "./dist/index.d.mts",
   "exports": {
     ".": "./dist/index.mjs",
+    "./apps": "./dist/apps.mjs",
     "./package.json": "./package.json"
   },
   "publishConfig": {
@@ -61,6 +62,7 @@
   "devDependencies": {
     "@arethetypeswrong/cli": "0.18.2",
     "@changesets/cli": "2.29.8",
+    "@modelcontextprotocol/ext-apps": "1.7.2",
     "@types/chrome": "^0.1.42",
     "@types/node": "^25.6.2",
     "@types/react": "^19.2.14",
@@ -83,10 +85,14 @@
     "vitest-browser-react": "^2.2.0"
   },
   "peerDependencies": {
+    "@modelcontextprotocol/ext-apps": "^1.7.2",
     "@types/react": "^18.0.0 || ^19.0.0",
     "react": "^18.0.0 || ^19.0.0"
   },
   "peerDependenciesMeta": {
+    "@modelcontextprotocol/ext-apps": {
+      "optional": true
+    },
     "@types/react": {
       "optional": true
     }

@@ -26,9 +26,12 @@ run(
     "install",
     "--ignore-scripts",
     "./package.tgz",
+    "@modelcontextprotocol/ext-apps@1.7.2",
     "react@19",
+    "react-dom@19",
     "@types/react@19",
     "@modelcontextprotocol/sdk@1",
+    "zod@4",
   ],
   {
     cwd: tempDir,
@@ -43,15 +46,27 @@ run(
   ],
   { cwd: tempDir },
 );
+run(
+  "node",
+  [
+    "--input-type=module",
+    "-e",
+    "import('use-mcp-react/apps').then((m) => { if (m.MCP_APP_EXTENSION_ID !== 'io.modelcontextprotocol/ui') throw new Error('Missing MCP_APP_EXTENSION_ID export'); if (m.MCP_APP_RESOURCE_MIME_TYPE !== 'text/html;profile=mcp-app') throw new Error('Missing MCP_APP_RESOURCE_MIME_TYPE export'); if (typeof m.createMcpAppClientCapabilities !== 'function') throw new Error('Missing createMcpAppClientCapabilities export'); if (typeof m.McpAppView !== 'function') throw new Error('Missing McpAppView export') })",
+  ],
+  { cwd: tempDir },
+);
 
 writeFileSync(
   join(tempDir, "index.ts"),
   [
     'import { useMcp, type UseMcpOptions, type UseMcpResult } from "use-mcp-react";',
+    'import { createMcpAppClientCapabilities, type McpAppViewProps } from "use-mcp-react/apps";',
     "",
     "const options: UseMcpOptions = { enabled: false, storage: false, url: null };",
     "const hook: (options: UseMcpOptions) => UseMcpResult = useMcp;",
-    "console.log(Boolean(options) && Boolean(hook));",
+    "const capabilities = createMcpAppClientCapabilities();",
+    "const props = {} as McpAppViewProps;",
+    "console.log(Boolean(options) && Boolean(hook) && Boolean(capabilities) && Boolean(props));",
     "",
   ].join("\n"),
 );

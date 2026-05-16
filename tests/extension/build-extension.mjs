@@ -8,6 +8,7 @@ const sourceDir = resolve("tests/extension/extension");
 mkdirSync(outDir, { recursive: true });
 cpSync(resolve(sourceDir, "manifest.json"), resolve(outDir, "manifest.json"));
 cpSync(resolve(sourceDir, "client.html"), resolve(outDir, "client.html"));
+cpSync(resolve(sourceDir, "sandbox.html"), resolve(outDir, "sandbox.html"));
 
 await build({
   bundle: true,
