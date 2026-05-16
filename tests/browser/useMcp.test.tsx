@@ -1,8 +1,9 @@
-import { StrictMode } from "react";
+import { StrictMode, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { http, HttpResponse } from "msw";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { page } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import {
   handleMcpOAuthCallback,
@@ -10,6 +11,7 @@ import {
   MCP_OAUTH_CALLBACK_CHANNEL,
   useMcp,
 } from "../../src/index.ts";
+import { createMcpAppClientCapabilities, McpAppView, readMcpAppResource } from "../../src/apps.ts";
 import { worker } from "./setup.js";
 import { renderHookProbe } from "./support/renderHookProbe.js";
 import { createOAuthMcpTestServer, type OAuthMcpTestServer } from "./support/oauthMcpServer.js";
@@ -972,6 +974,917 @@ describe("useMcp", () => {
 
     await probe.result.current.client?.close();
     await probe.unmount();
+  });
+
+  it("advertises MCP Apps support through the apps capability helper", async () => {
+    const server = createOAuthMcpTestServer({
+      requireAuth: false,
+      transportMode: "stateless",
+    });
+    worker.use(...server.handlers);
+
+    const probe = await renderHookProbe(
+      () =>
+        useMcp({
+          clientCapabilities: createMcpAppClientCapabilities(),
+          url: server.mcpUrl,
+        }),
+      (mcp) => ({
+        status: mcp.status,
+      }),
+    );
+
+    await vi.waitFor(() => {
+      expect(probe.result.current.status).toBe("ready");
+    });
+
+    expect(server.requestLog).toContainEqual(
+      expect.objectContaining({
+        initializeCapabilities: {
+          extensions: {
+            "io.modelcontextprotocol/ui": {
+              mimeTypes: ["text/html;profile=mcp-app"],
+            },
+          },
+        },
+        jsonRpcMethod: "initialize",
+      }),
+    );
+
+    await probe.result.current.client?.close();
+    await probe.unmount();
+  });
+
+  it("reads MCP App HTML resources through the authorized MCP client", async () => {
+    const server = createOAuthMcpTestServer({
+      appResources: [
+        {
+          html: "<main>Forecast ready</main>",
+          uri: "ui://weather/view.html",
+        },
+      ],
+      requireAuth: false,
+      transportMode: "stateless",
+    });
+    worker.use(...server.handlers);
+
+    const probe = await renderHookProbe(
+      () =>
+        useMcp({
+          clientCapabilities: createMcpAppClientCapabilities(),
+          url: server.mcpUrl,
+        }),
+      (mcp) => ({
+        client: mcp.client,
+        status: mcp.status,
+      }),
+    );
+
+    await vi.waitFor(() => {
+      expect(probe.result.current.status).toBe("ready");
+    });
+
+    const client = probe.result.current.client;
+    if (!client) {
+      throw new Error("Expected useMcp to expose a connected client.");
+    }
+
+    await expect(readMcpAppResource(client, "ui://weather/view.html")).resolves.toEqual({
+      html: "<main>Forecast ready</main>",
+      metadata: undefined,
+      mimeType: "text/html;profile=mcp-app",
+      uri: "ui://weather/view.html",
+    });
+
+    await probe.result.current.client?.close();
+    await probe.unmount();
+  });
+
+  it("decodes blob MCP App HTML resources through the authorized MCP client", async () => {
+    const html = "<main>Blob café forecast ready</main>";
+    const bytes = new TextEncoder().encode(html);
+    const server = createOAuthMcpTestServer({
+      appResources: [
+        {
+          blob: window.btoa(String.fromCharCode(...bytes)),
+          uri: "ui://weather/blob-view.html",
+        },
+      ],
+      requireAuth: false,
+      transportMode: "stateless",
+    });
+    worker.use(...server.handlers);
+
+    const probe = await renderHookProbe(
+      () =>
+        useMcp({
+          clientCapabilities: createMcpAppClientCapabilities(),
+          url: server.mcpUrl,
+        }),
+      (mcp) => ({
+        client: mcp.client,
+        status: mcp.status,
+      }),
+    );
+
+    await vi.waitFor(() => {
+      expect(probe.result.current.status).toBe("ready");
+    });
+
+    const client = probe.result.current.client;
+    if (!client) {
+      throw new Error("Expected useMcp to expose a connected client.");
+    }
+
+    await expect(readMcpAppResource(client, "ui://weather/blob-view.html")).resolves.toEqual({
+      html,
+      metadata: undefined,
+      mimeType: "text/html;profile=mcp-app",
+      uri: "ui://weather/blob-view.html",
+    });
+
+    await probe.result.current.client?.close();
+    await probe.unmount();
+  });
+
+  it("rejects resources that do not use the MCP Apps MIME type", async () => {
+    const server = createOAuthMcpTestServer({
+      appResources: [
+        {
+          html: "<main>Plain HTML</main>",
+          mimeType: "text/html",
+          uri: "ui://weather/plain-html.html",
+        },
+      ],
+      requireAuth: false,
+      transportMode: "stateless",
+    });
+    worker.use(...server.handlers);
+
+    const probe = await renderHookProbe(
+      () =>
+        useMcp({
+          clientCapabilities: createMcpAppClientCapabilities(),
+          url: server.mcpUrl,
+        }),
+      (mcp) => ({
+        client: mcp.client,
+        status: mcp.status,
+      }),
+    );
+
+    await vi.waitFor(() => {
+      expect(probe.result.current.status).toBe("ready");
+    });
+
+    const client = probe.result.current.client;
+    if (!client) {
+      throw new Error("Expected useMcp to expose a connected client.");
+    }
+
+    await expect(readMcpAppResource(client, "ui://weather/plain-html.html")).rejects.toThrow(
+      "Expected MCP App resource ui://weather/plain-html.html to use MIME type text/html;profile=mcp-app.",
+    );
+
+    await probe.result.current.client?.close();
+    await probe.unmount();
+  });
+
+  it("returns MCP App resource UI metadata from the content payload", async () => {
+    const server = createOAuthMcpTestServer({
+      appResources: [
+        {
+          html: "<main>Metadata forecast ready</main>",
+          metadata: {
+            csp: {
+              connectSrc: ["https://api.example.test"],
+            },
+            permissions: {
+              clipboardWrite: true,
+            },
+          },
+          uri: "ui://weather/metadata-view.html",
+        },
+      ],
+      requireAuth: false,
+      transportMode: "stateless",
+    });
+    worker.use(...server.handlers);
+
+    const probe = await renderHookProbe(
+      () =>
+        useMcp({
+          clientCapabilities: createMcpAppClientCapabilities(),
+          url: server.mcpUrl,
+        }),
+      (mcp) => ({
+        client: mcp.client,
+        status: mcp.status,
+      }),
+    );
+
+    await vi.waitFor(() => {
+      expect(probe.result.current.status).toBe("ready");
+    });
+
+    const client = probe.result.current.client;
+    if (!client) {
+      throw new Error("Expected useMcp to expose a connected client.");
+    }
+
+    await expect(readMcpAppResource(client, "ui://weather/metadata-view.html")).resolves.toEqual({
+      html: "<main>Metadata forecast ready</main>",
+      metadata: {
+        csp: {
+          connectSrc: ["https://api.example.test"],
+        },
+        permissions: {
+          clipboardWrite: true,
+        },
+      },
+      mimeType: "text/html;profile=mcp-app",
+      uri: "ui://weather/metadata-view.html",
+    });
+
+    await probe.result.current.client?.close();
+    await probe.unmount();
+  });
+
+  it("renders MCP App HTML resources in a sandboxed iframe", async () => {
+    const server = createOAuthMcpTestServer({
+      appResources: [
+        {
+          html: "<main><h1>Forecast iframe ready</h1></main>",
+          uri: "ui://weather/render-view.html",
+        },
+      ],
+      requireAuth: false,
+      transportMode: "stateless",
+    });
+    worker.use(...server.handlers);
+
+    function AppHost() {
+      const mcp = useMcp({
+        clientCapabilities: createMcpAppClientCapabilities(),
+        url: server.mcpUrl,
+      });
+
+      if (mcp.status !== "ready" || !mcp.client) {
+        return <p>Connecting</p>;
+      }
+
+      return (
+        <McpAppView
+          client={mcp.client}
+          title="Weather MCP App"
+          uri="ui://weather/render-view.html"
+        />
+      );
+    }
+
+    await render(<AppHost />);
+
+    const iframe = page.getByTitle("Weather MCP App");
+    await expect.element(iframe).toBeVisible();
+
+    const iframeElement = document.querySelector("iframe[title='Weather MCP App']");
+    expect(iframeElement?.getAttribute("sandbox")).toBe("allow-scripts");
+    await vi.waitFor(() => {
+      expect(iframeElement?.getAttribute("src")).toBe(
+        "data:text/html;charset=utf-8,%3Cmain%3E%3Ch1%3EForecast%20iframe%20ready%3C%2Fh1%3E%3C%2Fmain%3E",
+      );
+    });
+  });
+
+  it("does not tear down an MCP App iframe during normal data-url loading", async () => {
+    const appMessages: unknown[] = [];
+    const appMessageListener = (event: MessageEvent) => {
+      if (event.data?.type?.startsWith("mcp-app-lifecycle-")) {
+        appMessages.push(event.data);
+      }
+    };
+    window.addEventListener("message", appMessageListener);
+
+    const server = createOAuthMcpTestServer({
+      appResources: [
+        {
+          html: `
+            <script>
+              let initialized = false;
+
+              window.addEventListener("message", (event) => {
+                if (event.data?.id === 1 && !initialized) {
+                  initialized = true;
+                  window.parent.postMessage({
+                    jsonrpc: "2.0",
+                    method: "ui/notifications/initialized"
+                  }, "*");
+                  window.parent.postMessage({ type: "mcp-app-lifecycle-ready" }, "*");
+                  return;
+                }
+
+                if (event.data?.method === "ui/resource-teardown") {
+                  window.parent.postMessage({ type: "mcp-app-lifecycle-teardown" }, "*");
+                  window.parent.postMessage({
+                    id: event.data.id,
+                    jsonrpc: "2.0",
+                    result: {}
+                  }, "*");
+                }
+              });
+
+              window.setInterval(() => {
+                if (initialized) return;
+                window.parent.postMessage({
+                  id: 1,
+                  jsonrpc: "2.0",
+                  method: "ui/initialize",
+                  params: {
+                    appCapabilities: {},
+                    appInfo: { name: "lifecycle-test-app", version: "0.0.0" },
+                    protocolVersion: "2026-01-26"
+                  }
+                }, "*");
+              }, 20);
+            </script>
+          `,
+          uri: "ui://weather/single-init-view.html",
+        },
+      ],
+      requireAuth: false,
+      transportMode: "stateless",
+    });
+    worker.use(...server.handlers);
+
+    function AppHost() {
+      const mcp = useMcp({
+        clientCapabilities: createMcpAppClientCapabilities(),
+        url: server.mcpUrl,
+      });
+
+      if (mcp.status !== "ready" || !mcp.client) {
+        return <p>Connecting</p>;
+      }
+
+      return (
+        <McpAppView
+          client={mcp.client}
+          title="Single Init MCP App"
+          uri="ui://weather/single-init-view.html"
+        />
+      );
+    }
+
+    try {
+      await render(<AppHost />);
+
+      await vi.waitFor(() => {
+        expect(appMessages).toContainEqual({ type: "mcp-app-lifecycle-ready" });
+      });
+      await new Promise<void>((resolve) => {
+        window.setTimeout(resolve, 120);
+      });
+
+      expect(appMessages).not.toContainEqual({ type: "mcp-app-lifecycle-teardown" });
+    } finally {
+      window.removeEventListener("message", appMessageListener);
+    }
+  });
+
+  it("sends MCP App resource teardown before switching iframe resources", async () => {
+    const appMessages: unknown[] = [];
+    const appMessageListener = (event: MessageEvent) => {
+      if (event.data?.type?.startsWith("mcp-app-lifecycle-")) {
+        appMessages.push(event.data);
+      }
+    };
+    window.addEventListener("message", appMessageListener);
+
+    const server = createOAuthMcpTestServer({
+      appResources: [
+        {
+          html: `
+            <script>
+              let initialized = false;
+
+              window.addEventListener("message", (event) => {
+                if (event.data?.id === 1 && !initialized) {
+                  initialized = true;
+                  window.parent.postMessage({
+                    jsonrpc: "2.0",
+                    method: "ui/notifications/initialized"
+                  }, "*");
+                  window.parent.postMessage({ type: "mcp-app-lifecycle-ready" }, "*");
+                  return;
+                }
+
+                if (event.data?.method === "ui/resource-teardown") {
+                  window.parent.postMessage({ type: "mcp-app-lifecycle-teardown" }, "*");
+                  window.parent.postMessage({
+                    id: event.data.id,
+                    jsonrpc: "2.0",
+                    result: {}
+                  }, "*");
+                }
+              });
+
+              window.setInterval(() => {
+                if (initialized) return;
+                window.parent.postMessage({
+                  id: 1,
+                  jsonrpc: "2.0",
+                  method: "ui/initialize",
+                  params: {
+                    appCapabilities: {},
+                    appInfo: { name: "teardown-test-app", version: "0.0.0" },
+                    protocolVersion: "2026-01-26"
+                  }
+                }, "*");
+              }, 20);
+            </script>
+          `,
+          uri: "ui://weather/teardown-first-view.html",
+        },
+        {
+          html: `
+            <script>
+              let initialized = false;
+
+              window.addEventListener("message", (event) => {
+                if (event.data?.id === 1 && !initialized) {
+                  initialized = true;
+                  window.parent.postMessage({
+                    jsonrpc: "2.0",
+                    method: "ui/notifications/initialized"
+                  }, "*");
+                  window.parent.postMessage({ type: "mcp-app-lifecycle-next-ready" }, "*");
+                }
+              });
+
+              window.setInterval(() => {
+                if (initialized) return;
+                window.parent.postMessage({
+                  id: 1,
+                  jsonrpc: "2.0",
+                  method: "ui/initialize",
+                  params: {
+                    appCapabilities: {},
+                    appInfo: { name: "next-test-app", version: "0.0.0" },
+                    protocolVersion: "2026-01-26"
+                  }
+                }, "*");
+              }, 20);
+            </script>
+          `,
+          uri: "ui://weather/teardown-next-view.html",
+        },
+      ],
+      requireAuth: false,
+      transportMode: "stateless",
+    });
+    worker.use(...server.handlers);
+
+    function AppHost() {
+      const [uri, setUri] = useState("ui://weather/teardown-first-view.html");
+      const mcp = useMcp({
+        clientCapabilities: createMcpAppClientCapabilities(),
+        url: server.mcpUrl,
+      });
+
+      if (mcp.status !== "ready" || !mcp.client) {
+        return <p>Connecting</p>;
+      }
+
+      return (
+        <>
+          <button onClick={() => setUri("ui://weather/teardown-next-view.html")} type="button">
+            Switch app
+          </button>
+          <McpAppView client={mcp.client} title="Teardown MCP App" uri={uri} />
+        </>
+      );
+    }
+
+    try {
+      await render(<AppHost />);
+
+      await vi.waitFor(() => {
+        expect(appMessages).toContainEqual({ type: "mcp-app-lifecycle-ready" });
+      });
+
+      await page.getByRole("button", { name: "Switch app" }).click();
+
+      await vi.waitFor(() => {
+        expect(appMessages).toContainEqual({ type: "mcp-app-lifecycle-teardown" });
+      });
+      await vi.waitFor(() => {
+        expect(appMessages).toContainEqual({ type: "mcp-app-lifecycle-next-ready" });
+      });
+    } finally {
+      window.removeEventListener("message", appMessageListener);
+    }
+  });
+
+  it("lets MCP Apps call protected server tools through the parent authorized client", async () => {
+    const token = "bridge-test-token";
+    const appResultMessages: unknown[] = [];
+    const appMessageListener = (event: MessageEvent) => {
+      if (event.data?.type === "mcp-app-test-result") {
+        appResultMessages.push(event.data);
+      }
+    };
+    window.addEventListener("message", appMessageListener);
+
+    const server = createOAuthMcpTestServer({
+      acceptedBearerTokens: [
+        {
+          clientId: "bridge-test-client",
+          resource: `${window.location.origin}/mcp`,
+          scope: "mcp:tools",
+          token,
+        },
+      ],
+      advertiseOAuth: false,
+      appResources: [
+        {
+          html: `
+            <main>Bridge app</main>
+            <script>
+              const seenMessages = [];
+              let initialized = false;
+              let nextId = 1;
+              let toolCallId = 0;
+
+              window.addEventListener("message", (event) => {
+                seenMessages.push(JSON.stringify(event.data));
+
+                if (event.data?.id === 1 && !initialized) {
+                  initialized = true;
+                  window.parent.postMessage({
+                    jsonrpc: "2.0",
+                    method: "ui/notifications/initialized"
+                  }, "*");
+                  toolCallId = ++nextId;
+                  window.parent.postMessage({
+                    id: toolCallId,
+                    jsonrpc: "2.0",
+                    method: "tools/call",
+                    params: {
+                      name: "app-visible-tool",
+                      arguments: {}
+                    }
+                  }, "*");
+                }
+
+                if (event.data?.id === toolCallId) {
+                  window.parent.postMessage({
+                    type: "mcp-app-test-result",
+                    result: event.data.result,
+                    sawToken: seenMessages.some((message) => message.includes("${token}"))
+                  }, "*");
+                }
+              });
+
+              const initializeInterval = window.setInterval(() => {
+                if (initialized) {
+                  window.clearInterval(initializeInterval);
+                  return;
+                }
+                window.parent.postMessage({
+                  id: 1,
+                  jsonrpc: "2.0",
+                  method: "ui/initialize",
+                  params: {
+                    appCapabilities: {},
+                    appInfo: { name: "bridge-test-app", version: "0.0.0" },
+                    protocolVersion: "2026-01-26"
+                  }
+                }, "*");
+              }, 20);
+            </script>
+          `,
+          uri: "ui://weather/bridge-view.html",
+        },
+      ],
+      requireAuth: true,
+      transportMode: "stateless",
+    });
+    server.registerTool("app-visible-tool");
+    worker.use(...server.handlers);
+
+    function AppHost() {
+      const mcp = useMcp({
+        bearerToken: token,
+        clientCapabilities: createMcpAppClientCapabilities(),
+        url: server.mcpUrl,
+      });
+
+      if (mcp.status !== "ready" || !mcp.client) {
+        return <p>Connecting</p>;
+      }
+
+      return (
+        <McpAppView
+          client={mcp.client}
+          title="Weather Bridge MCP App"
+          tools={mcp.tools}
+          uri="ui://weather/bridge-view.html"
+        />
+      );
+    }
+
+    try {
+      await render(<AppHost />);
+
+      await vi.waitFor(() => {
+        expect(appResultMessages).toContainEqual(
+          expect.objectContaining({
+            result: {
+              content: [
+                {
+                  text: "app-visible-tool",
+                  type: "text",
+                },
+              ],
+            },
+            sawToken: false,
+            type: "mcp-app-test-result",
+          }),
+        );
+      });
+
+      expect(server.requestLog).toContainEqual(
+        expect.objectContaining({
+          authorization: `Bearer ${token}`,
+          jsonRpcMethod: "tools/call",
+        }),
+      );
+    } finally {
+      window.removeEventListener("message", appMessageListener);
+    }
+  });
+
+  it("rejects MCP App calls to model-only server tools", async () => {
+    const appResultMessages: unknown[] = [];
+    const appMessageListener = (event: MessageEvent) => {
+      if (event.data?.type === "mcp-app-denied-tool-result") {
+        appResultMessages.push(event.data);
+      }
+    };
+    window.addEventListener("message", appMessageListener);
+
+    const server = createOAuthMcpTestServer({
+      appResources: [
+        {
+          html: `
+            <script>
+              let initialized = false;
+              let toolCallId = 0;
+
+              window.addEventListener("message", (event) => {
+                if (event.data?.id === 1 && !initialized) {
+                  initialized = true;
+                  window.parent.postMessage({
+                    jsonrpc: "2.0",
+                    method: "ui/notifications/initialized"
+                  }, "*");
+                  toolCallId = 2;
+                  window.parent.postMessage({
+                    id: toolCallId,
+                    jsonrpc: "2.0",
+                    method: "tools/call",
+                    params: {
+                      name: "model-only-tool",
+                      arguments: {}
+                    }
+                  }, "*");
+                }
+
+                if (event.data?.id === toolCallId) {
+                  window.parent.postMessage({
+                    error: event.data.error,
+                    type: "mcp-app-denied-tool-result"
+                  }, "*");
+                }
+              });
+
+              window.setInterval(() => {
+                if (initialized) return;
+                window.parent.postMessage({
+                  id: 1,
+                  jsonrpc: "2.0",
+                  method: "ui/initialize",
+                  params: {
+                    appCapabilities: {},
+                    appInfo: { name: "denied-tool-test-app", version: "0.0.0" },
+                    protocolVersion: "2026-01-26"
+                  }
+                }, "*");
+              }, 20);
+            </script>
+          `,
+          uri: "ui://weather/denied-tool-view.html",
+        },
+      ],
+      requireAuth: false,
+      transportMode: "stateless",
+    });
+    server.registerTool("model-only-tool", {
+      metadata: {
+        ui: {
+          visibility: ["model"],
+        },
+      },
+    });
+    worker.use(...server.handlers);
+
+    function AppHost() {
+      const mcp = useMcp({
+        clientCapabilities: createMcpAppClientCapabilities(),
+        url: server.mcpUrl,
+      });
+
+      if (mcp.status !== "ready" || !mcp.client) {
+        return <p>Connecting</p>;
+      }
+
+      return (
+        <McpAppView
+          client={mcp.client}
+          title="Denied Tool MCP App"
+          tools={mcp.tools}
+          uri="ui://weather/denied-tool-view.html"
+        />
+      );
+    }
+
+    try {
+      await render(<AppHost />);
+
+      await vi.waitFor(() => {
+        expect(appResultMessages).toContainEqual(
+          expect.objectContaining({
+            error: expect.objectContaining({
+              message: expect.stringContaining(
+                "MCP App is not allowed to call tool model-only-tool.",
+              ),
+            }),
+            type: "mcp-app-denied-tool-result",
+          }),
+        );
+      });
+
+      expect(server.requestLog.some((entry) => entry.jsonRpcMethod === "tools/call")).toBe(false);
+    } finally {
+      window.removeEventListener("message", appMessageListener);
+    }
+  });
+
+  it("uses the latest MCP App tools policy without reloading the iframe", async () => {
+    const appMessages: unknown[] = [];
+    const appMessageListener = (event: MessageEvent) => {
+      if (event.data?.type?.startsWith("mcp-app-policy-")) {
+        appMessages.push(event.data);
+      }
+    };
+    window.addEventListener("message", appMessageListener);
+
+    const server = createOAuthMcpTestServer({
+      appResources: [
+        {
+          html: `
+            <script>
+              let initialized = false;
+              let toolCallId = 0;
+
+              window.addEventListener("message", (event) => {
+                if (event.data?.id === 1 && !initialized) {
+                  initialized = true;
+                  window.parent.postMessage({
+                    jsonrpc: "2.0",
+                    method: "ui/notifications/initialized"
+                  }, "*");
+                  window.parent.postMessage({ type: "mcp-app-policy-initialized" }, "*");
+                }
+
+                if (event.data?.type === "mcp-app-policy-call-tool") {
+                  toolCallId += 1;
+                  window.parent.postMessage({
+                    id: toolCallId + 1,
+                    jsonrpc: "2.0",
+                    method: "tools/call",
+                    params: {
+                      name: "dynamic-policy-tool",
+                      arguments: {}
+                    }
+                  }, "*");
+                  return;
+                }
+
+                if (event.data?.id === toolCallId + 1 && toolCallId > 0) {
+                  window.parent.postMessage({
+                    error: event.data.error,
+                    result: event.data.result,
+                    type: "mcp-app-policy-tool-result"
+                  }, "*");
+                }
+              });
+
+              window.setInterval(() => {
+                if (initialized) return;
+                window.parent.postMessage({
+                  id: 1,
+                  jsonrpc: "2.0",
+                  method: "ui/initialize",
+                  params: {
+                    appCapabilities: {},
+                    appInfo: { name: "policy-test-app", version: "0.0.0" },
+                    protocolVersion: "2026-01-26"
+                  }
+                }, "*");
+              }, 20);
+            </script>
+          `,
+          uri: "ui://weather/policy-view.html",
+        },
+      ],
+      requireAuth: false,
+      transportMode: "stateless",
+    });
+    server.registerTool("dynamic-policy-tool");
+    worker.use(...server.handlers);
+
+    function AppHost() {
+      const [denyTool, setDenyTool] = useState(false);
+      const mcp = useMcp({
+        clientCapabilities: createMcpAppClientCapabilities(),
+        url: server.mcpUrl,
+      });
+
+      if (mcp.status !== "ready" || !mcp.client) {
+        return <p>Connecting</p>;
+      }
+
+      const tools = denyTool
+        ? mcp.tools.map((tool) =>
+            tool.name === "dynamic-policy-tool"
+              ? { ...tool, _meta: { ...tool._meta, ui: { visibility: ["model"] } } }
+              : tool,
+          )
+        : mcp.tools;
+
+      return (
+        <>
+          <button onClick={() => setDenyTool(true)} type="button">
+            Deny app tool
+          </button>
+          <McpAppView
+            client={mcp.client}
+            title="Policy MCP App"
+            tools={tools}
+            uri="ui://weather/policy-view.html"
+          />
+        </>
+      );
+    }
+
+    try {
+      await render(<AppHost />);
+
+      await vi.waitFor(() => {
+        expect(appMessages).toContainEqual({ type: "mcp-app-policy-initialized" });
+      });
+      const iframe = document.querySelector<HTMLIFrameElement>("iframe[title='Policy MCP App']");
+      const iframeSrc = iframe?.getAttribute("src");
+      expect(iframeSrc).toBeTruthy();
+
+      await page.getByRole("button", { name: "Deny app tool" }).click();
+      await new Promise<void>((resolve) => {
+        window.setTimeout(resolve, 80);
+      });
+
+      expect(document.querySelector("iframe[title='Policy MCP App']")?.getAttribute("src")).toBe(
+        iframeSrc,
+      );
+
+      iframe?.contentWindow?.postMessage({ type: "mcp-app-policy-call-tool" }, "*");
+
+      await vi.waitFor(() => {
+        expect(appMessages).toContainEqual(
+          expect.objectContaining({
+            error: expect.objectContaining({
+              message: expect.stringContaining(
+                "MCP App is not allowed to call tool dynamic-policy-tool.",
+              ),
+            }),
+            type: "mcp-app-policy-tool-result",
+          }),
+        );
+      });
+      expect(server.requestLog.some((entry) => entry.jsonRpcMethod === "tools/call")).toBe(false);
+    } finally {
+      window.removeEventListener("message", appMessageListener);
+    }
   });
 
   it("refreshes only the catalog section named by list-changed notifications", async () => {

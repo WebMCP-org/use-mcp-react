@@ -33,6 +33,10 @@ type RefreshToken = {
   token: string;
 };
 
+type DynamicToolOptions = {
+  metadata?: Record<string, unknown>;
+};
+
 type RequestLogEntry = {
   accept?: string | null;
   authorization?: string | null;
@@ -53,6 +57,13 @@ type OAuthMcpTestServerOptions = {
   acceptedBearerTokens?: AccessToken[];
   acceptedClientMetadataUrls?: string[];
   advertiseOAuth?: boolean;
+  appResources?: Array<{
+    blob?: string;
+    html?: string;
+    metadata?: Record<string, unknown>;
+    mimeType?: string;
+    uri: `ui://${string}`;
+  }>;
   authorizationServerPath?: `/${string}`;
   authenticateHeader?: string | ((defaultHeader: string) => string);
   failCatalogMethods?: Array<
@@ -89,7 +100,7 @@ export type OAuthMcpTestServer = {
   handlers: ReturnType<typeof http.all>[];
   registerPrompt(name: string): void;
   registerResource(uri: string): void;
-  registerTool(name: string): void;
+  registerTool(name: string, options?: DynamicToolOptions): void;
   sendPromptListChanged(): void;
   sendResourceListChanged(): void;
   sendToolListChanged(): void;
@@ -127,7 +138,7 @@ export function createOAuthMcpTestServer(
   const refreshTokens = new Map<string, RefreshToken>();
   const dynamicPrompts = new Set<string>();
   const dynamicResources = new Set<string>();
-  const dynamicTools = new Set<string>();
+  const dynamicTools = new Map<string, DynamicToolOptions>();
   let statefulMcpServer: McpServer | undefined;
 
   for (const client of options.preRegisteredClients ?? []) {
@@ -250,8 +261,42 @@ export function createOAuthMcpTestServer(
         ],
       }),
     );
-    for (const toolName of dynamicTools) {
-      registerDynamicTool(mcpServer, toolName);
+    options.appResources?.forEach((appResource, index) => {
+      const mimeType = appResource.mimeType ?? "text/html;profile=mcp-app";
+      const appResourceContent =
+        typeof appResource.blob === "string"
+          ? { blob: appResource.blob }
+          : { text: appResource.html ?? "" };
+      const metadata =
+        appResource.metadata === undefined
+          ? {}
+          : {
+              _meta: {
+                ui: appResource.metadata,
+              },
+            };
+      mcpServer.registerResource(
+        `app-resource-${index}`,
+        appResource.uri,
+        {
+          title: appResource.uri,
+          description: "An MCP Apps HTML resource.",
+          mimeType,
+        },
+        () => ({
+          contents: [
+            {
+              ...appResourceContent,
+              ...metadata,
+              uri: appResource.uri,
+              mimeType,
+            },
+          ],
+        }),
+      );
+    });
+    for (const [toolName, toolOptions] of dynamicTools) {
+      registerDynamicTool(mcpServer, toolName, toolOptions);
     }
     for (const resourceUri of dynamicResources) {
       registerDynamicResource(mcpServer, resourceUri);
@@ -912,10 +957,10 @@ export function createOAuthMcpTestServer(
         registerDynamicResource(statefulMcpServer, uri);
       }
     },
-    registerTool: (name) => {
-      dynamicTools.add(name);
+    registerTool: (name, toolOptions = {}) => {
+      dynamicTools.set(name, toolOptions);
       if (statefulMcpServer) {
-        registerDynamicTool(statefulMcpServer, name);
+        registerDynamicTool(statefulMcpServer, name, toolOptions);
       }
     },
     sendPromptListChanged: () => {
@@ -930,11 +975,16 @@ export function createOAuthMcpTestServer(
   };
 }
 
-function registerDynamicTool(mcpServer: McpServer, name: string): void {
+function registerDynamicTool(
+  mcpServer: McpServer,
+  name: string,
+  options: DynamicToolOptions = {},
+): void {
   mcpServer.registerTool(
     name,
     {
       description: `Dynamic test tool ${name}.`,
+      ...(options.metadata ? { _meta: options.metadata } : {}),
     },
     () => ({
       content: [

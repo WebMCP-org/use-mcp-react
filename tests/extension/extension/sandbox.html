@@ -1,0 +1,69 @@
+<!doctype html>
+<meta charset="utf-8" />
+<style>
+  html,
+  body,
+  iframe {
+    border: 0;
+    height: 100%;
+    margin: 0;
+    width: 100%;
+  }
+</style>
+<body></body>
+<script>
+  const RESOURCE_READY_METHOD = "ui/notifications/sandbox-resource-ready";
+  const PROXY_READY_METHOD = "ui/notifications/sandbox-proxy-ready";
+  const inner = document.createElement("iframe");
+
+  inner.setAttribute("sandbox", "allow-scripts");
+  document.body.appendChild(inner);
+
+  window.addEventListener("message", (event) => {
+    if (event.source === window.parent) {
+      if (event.data?.method === RESOURCE_READY_METHOD) {
+        const params = event.data.params ?? {};
+        if (typeof params.sandbox === "string") {
+          inner.setAttribute("sandbox", params.sandbox);
+        }
+
+        const allow = buildAllowAttribute(params.permissions);
+        if (allow) {
+          inner.setAttribute("allow", allow);
+        } else {
+          inner.removeAttribute("allow");
+        }
+
+        if (typeof params.html === "string") {
+          inner.srcdoc = params.html;
+        }
+        return;
+      }
+
+      inner.contentWindow?.postMessage(event.data, "*");
+      return;
+    }
+
+    if (event.source === inner.contentWindow) {
+      window.parent.postMessage(event.data, "*");
+    }
+  });
+
+  window.parent.postMessage(
+    {
+      jsonrpc: "2.0",
+      method: PROXY_READY_METHOD,
+      params: {},
+    },
+    "*",
+  );
+
+  function buildAllowAttribute(permissions) {
+    const allow = [];
+    if (permissions?.camera) allow.push("camera");
+    if (permissions?.microphone) allow.push("microphone");
+    if (permissions?.geolocation) allow.push("geolocation");
+    if (permissions?.clipboardWrite) allow.push("clipboard-write");
+    return allow.join("; ");
+  }
+</script>

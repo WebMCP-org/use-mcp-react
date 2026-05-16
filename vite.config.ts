@@ -26,6 +26,7 @@ export default defineConfig({
     dts: {
       tsgo: true,
     },
+    entry: ["src/index.ts", "src/apps.ts"],
     exports: true,
   },
   lint: {
@@ -52,6 +53,7 @@ export default defineConfig({
   },
   optimizeDeps: {
     include: [
+      "@modelcontextprotocol/ext-apps/app-bridge",
       "@modelcontextprotocol/sdk/client/auth.js",
       "@modelcontextprotocol/sdk/client/index.js",
       "@modelcontextprotocol/sdk/client/streamableHttp.js",

@@ -16,6 +16,7 @@ The playground is a single-screen live demo of the library's actual pitch: paste
 4. **Discovery timeline.** Each phase of the hook's probing lights up as it happens: endpoint reach → no-auth probe → resource metadata → authorization server → registration strategy.
 5. **Inference verdict, "Render this" UI, and the React code branch.** Three equal-weight cards. The middle card is a live, working input form — clicking the OAuth button or submitting the bearer/client-id form actually drives the connection.
 6. **Proof of life.** Once `mcp.status === "ready"`, the server identity, capabilities, and catalog counts/listings appear. No invocation UI.
+7. **MCP Apps rendering.** If a connected server advertises tool UI resources through MCP Apps metadata, the playground renders the upstream `ui://` resource with `McpAppView`.
 
 ## Bundled presets
 
@@ -28,6 +29,7 @@ The playground also serves a Client ID Metadata Document at `/.well-known/oauth-
 
 | Preset               | URL                                | Expected verdict                                                                      |
 | -------------------- | ---------------------------------- | ------------------------------------------------------------------------------------- |
+| Canva                | `https://mcp.canva.com/mcp`        | `type: "oauth"` through `/api/mcp-proxy`                                              |
 | DeepWiki             | `https://mcp.deepwiki.com/mcp`     | `authRequirement = null` through `/api/mcp-proxy`                                     |
 | Linear               | `https://mcp.linear.app/mcp`       | `type: "oauth"` through `/api/mcp-proxy`; toggle CIMD on to use the metadata document |
 | Firecrawl            | `https://mcp.firecrawl.dev/v2/mcp` | `type: "bearer"` through `/api/mcp-proxy`                                             |
@@ -59,6 +61,7 @@ Run the same shape locally with `vp run playground`; deploy it with `vp run use-
 ## Sources
 
 - DeepWiki MCP: https://mcp.deepwiki.com/mcp
+- Canva MCP: https://www.canva.dev/docs/mcp/
 - Official MCP example remote server: https://github.com/modelcontextprotocol/example-remote-server
 - Linear MCP: https://linear.app/docs/mcp
 - Stripe MCP: https://docs.stripe.com/mcp

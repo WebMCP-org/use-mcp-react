@@ -7,6 +7,12 @@
     "service_worker": "background.mjs",
     "type": "module"
   },
+  "content_security_policy": {
+    "sandbox": "sandbox allow-scripts; script-src 'self' 'unsafe-inline'"
+  },
   "permissions": ["identity"],
-  "host_permissions": ["http://127.0.0.1/*"]
+  "host_permissions": ["http://127.0.0.1/*"],
+  "sandbox": {
+    "pages": ["sandbox.html"]
+  }
 }

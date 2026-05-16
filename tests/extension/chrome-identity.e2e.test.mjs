@@ -85,6 +85,82 @@ describe("Chrome extension OAuth", () => {
     }
   });
 
+  it("renders an MCP App iframe that calls protected tools through the extension client", async () => {
+    let server;
+    let context;
+    const diagnostics = [];
+
+    try {
+      server = await startOAuthMcpServer({ mcpApp: true });
+      const launched = await launchExtensionContext();
+      context = launched.context;
+      const page = await context.newPage();
+      page.on("console", (message) =>
+        diagnostics.push(`[console:${message.type()}] ${message.text()}`),
+      );
+      page.on("pageerror", (error) =>
+        diagnostics.push(`[pageerror] ${error.stack ?? error.message}`),
+      );
+      await page.goto(
+        `chrome-extension://${launched.extensionId}/client.html?mcpUrl=${encodeURIComponent(
+          server.mcpUrl,
+        )}&renderApp=1`,
+        { timeout: 8_000, waitUntil: "domcontentloaded" },
+      );
+
+      await waitForExtensionSelector(
+        page,
+        '#status[data-status="pending_auth"]',
+        diagnostics,
+        server,
+      );
+      await page.locator("#authorize").click();
+      await waitForExtensionSelector(page, '#status[data-status="ready"]', diagnostics, server);
+
+      try {
+        await page.waitForFunction(
+          () => document.querySelector("#app-result")?.textContent?.includes("extension-app-tool"),
+          null,
+          { timeout: 8_000 },
+        );
+      } catch (error) {
+        const appResult = await page
+          .locator("#app-result")
+          .textContent()
+          .catch(() => "");
+        const appSawToken = await page
+          .locator("#app-saw-token")
+          .textContent()
+          .catch(() => "");
+        const iframeDetails = await page
+          .locator("iframe")
+          .evaluateAll((iframes) =>
+            iframes.map((iframe) => ({
+              sandbox: iframe.getAttribute("sandbox"),
+              src: iframe.getAttribute("src"),
+              title: iframe.getAttribute("title"),
+            })),
+          )
+          .catch((cause) => [{ error: cause instanceof Error ? cause.message : String(cause) }]);
+        throw new Error(
+          [
+            error instanceof Error ? error.message : String(error),
+            `appResult=${appResult}`,
+            `appSawToken=${appSawToken}`,
+            `iframeDetails=${JSON.stringify(iframeDetails)}`,
+            `appToolCallCount=${server.appToolCallCount}`,
+            ...diagnostics,
+          ].join("\n"),
+        );
+      }
+
+      assert.equal((await page.locator("#app-saw-token").textContent()) ?? "", "false");
+      assert.equal(server.appToolCallCount, 1);
+    } finally {
+      await closeTestResources(context, server);
+    }
+  });
+
   it("keeps the Chrome Identity redirect URI when client metadata tries to override it", async () => {
     let server;
     let context;
@@ -327,6 +403,88 @@ async function launchExtensionContext() {
   return { context, extensionId };
 }
 
+async function waitForExtensionSelector(page, selector, diagnostics, server) {
+  try {
+    await page.waitForSelector(selector, { timeout: 8_000 });
+  } catch (error) {
+    throw new Error(
+      [
+        error instanceof Error ? error.message : String(error),
+        ...(await readExtensionPageDiagnostics(page, server)),
+        ...diagnostics,
+      ].join("\n"),
+    );
+  }
+}
+
+async function readExtensionPageDiagnostics(page, server) {
+  const status = await page
+    .locator("#status")
+    .textContent()
+    .catch(() => "");
+  const hookError = await page
+    .locator("#error")
+    .textContent()
+    .catch(() => "");
+  const authorizationUrl = await page
+    .locator("#authorization-url")
+    .textContent()
+    .catch(() => "");
+  const appResult = await page
+    .locator("#app-result")
+    .textContent()
+    .catch(() => "");
+  const appSawToken = await page
+    .locator("#app-saw-token")
+    .textContent()
+    .catch(() => "");
+  const iframeDetails = await page
+    .locator("iframe")
+    .evaluateAll((iframes) =>
+      iframes.map((iframe) => ({
+        sandbox: iframe.getAttribute("sandbox"),
+        src: iframe.getAttribute("src"),
+        title: iframe.getAttribute("title"),
+      })),
+    )
+    .catch((cause) => [{ error: cause instanceof Error ? cause.message : String(cause) }]);
+
+  return [
+    `status=${status}`,
+    `error=${hookError}`,
+    `authorizationUrl=${authorizationUrl}`,
+    `appResult=${appResult}`,
+    `appSawToken=${appSawToken}`,
+    `iframeDetails=${JSON.stringify(iframeDetails)}`,
+    `appToolCallCount=${server.appToolCallCount}`,
+  ];
+}
+
+async function closeTestResources(context, server) {
+  await Promise.allSettled([
+    withTimeout(context?.close(), "context.close"),
+    withTimeout(server?.close(), "server.close"),
+  ]);
+}
+
+async function withTimeout(promise, label) {
+  if (!promise) {
+    return;
+  }
+
+  let timeout;
+  try {
+    await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timeout = setTimeout(() => reject(new Error(`${label} timed out`)), 3_000);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function startOAuthMcpServer(options = {}) {
   const allowedRedirectUriPattern =
     options.allowedRedirectUriPattern ?? /^https:\/\/[a-p]{32}\.chromiumapp\.org\/$/u;
@@ -337,6 +495,7 @@ async function startOAuthMcpServer(options = {}) {
   const authorizationCodes = new Map();
   const accessTokens = new Map();
   const registeredRedirectUris = [];
+  let appToolCallCount = 0;
   let tokenRequestCount = 0;
 
   const server = createServer(async (incoming, outgoing) => {
@@ -545,6 +704,100 @@ async function startOAuthMcpServer(options = {}) {
         },
       ],
     }));
+    if (options.mcpApp) {
+      mcpServer.registerTool(
+        "show-extension-app",
+        {
+          _meta: {
+            ui: {
+              resourceUri: "ui://extension/app.html",
+            },
+          },
+        },
+        () => ({
+          content: [{ type: "text", text: "render extension app" }],
+        }),
+      );
+      mcpServer.registerTool("extension-app-tool", {}, () => {
+        appToolCallCount += 1;
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: "extension-app-tool",
+            },
+          ],
+        };
+      });
+      mcpServer.registerResource(
+        "extension-app",
+        "ui://extension/app.html",
+        {
+          mimeType: "text/html;profile=mcp-app",
+        },
+        () => ({
+          contents: [
+            {
+              uri: "ui://extension/app.html",
+              mimeType: "text/html;profile=mcp-app",
+              text: `
+                <script>
+                  const seenMessages = [];
+                  let initialized = false;
+                  let toolCallId = 0;
+                  const issuedToken = ["access", "token", "1"].join("-");
+
+                  window.addEventListener("message", (event) => {
+                    seenMessages.push(JSON.stringify(event.data));
+
+                    if (event.data?.id === 1 && !initialized) {
+                      initialized = true;
+                      window.parent.postMessage({
+                        jsonrpc: "2.0",
+                        method: "ui/notifications/initialized"
+                      }, "*");
+                      toolCallId = 2;
+                      window.parent.postMessage({
+                        id: toolCallId,
+                        jsonrpc: "2.0",
+                        method: "tools/call",
+                        params: {
+                          name: "extension-app-tool",
+                          arguments: {}
+                        }
+                      }, "*");
+                    }
+
+                    if (event.data?.id === toolCallId) {
+                      window.parent.postMessage({
+                        type: "extension-mcp-app-result",
+                        result: event.data.result,
+                        sawToken: seenMessages.some((message) => message.includes(issuedToken))
+                      }, "*");
+                    }
+                  });
+
+                  window.setInterval(() => {
+                    if (initialized) return;
+                    window.parent.postMessage({
+                      id: 1,
+                      jsonrpc: "2.0",
+                      method: "ui/initialize",
+                      params: {
+                        appCapabilities: {},
+                        appInfo: { name: "extension-test-app", version: "0.0.0" },
+                        protocolVersion: "2026-01-26"
+                      }
+                    }, "*");
+                  }, 20);
+                </script>
+              `,
+            },
+          ],
+        }),
+      );
+    }
 
     const transport = new WebStandardStreamableHTTPServerTransport();
     await mcpServer.connect(transport);
@@ -552,6 +805,9 @@ async function startOAuthMcpServer(options = {}) {
   }
 
   return {
+    get appToolCallCount() {
+      return appToolCallCount;
+    },
     get registeredRedirectUris() {
       return registeredRedirectUris;
     },

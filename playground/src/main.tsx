@@ -11,6 +11,11 @@ import {
   type UseMcpResult,
   type UseMcpStatus,
 } from "../../src/index.ts";
+import {
+  createMcpAppClientCapabilities,
+  getMcpAppResourceUri,
+  McpAppView,
+} from "../../src/apps.ts";
 import { playgroundMcpTransportProxyFor } from "./mcpProxyPolicy.ts";
 import "./styles.css";
 
@@ -51,6 +56,15 @@ type VerdictFact = { label: string; mono?: boolean; value: string };
 const defaultRedirectUrl = `${window.location.origin}/oauth/callback`;
 
 const presets: Preset[] = [
+  {
+    authMode: "auto",
+    id: "canva",
+    name: "Canva",
+    proxyNote:
+      "Canva is a hosted remote MCP server. OAuth stays in the browser; MCP transport goes through the playground proxy route.",
+    tag: "Remote OAuth",
+    url: "https://mcp.canva.com/mcp",
+  },
   {
     authMode: "auto",
     id: "deepwiki",
@@ -1019,6 +1033,8 @@ function ConnectionProof({
         <p className="proof-instructions">{profile.initialize.instructions}</p>
       ) : null}
 
+      <McpAppsProof mcp={mcp} />
+
       <details className="more">
         <summary>Catalog{catalogSummary ? ` — ${catalogSummary}` : ""}</summary>
         <CatalogList
@@ -1045,6 +1061,72 @@ function ConnectionProof({
         <summary>Raw serverProfile JSON</summary>
         <pre className="proof-raw">{JSON.stringify(profile, null, 2)}</pre>
       </details>
+    </section>
+  );
+}
+
+function McpAppsProof({ mcp }: { mcp: UseMcpResult }) {
+  const appTools = useMemo(
+    () =>
+      mcp.tools
+        .map((tool) => {
+          const uri = getMcpAppResourceUri(tool);
+          return uri
+            ? {
+                name: tool.title ?? tool.name,
+                tool,
+                uri,
+              }
+            : null;
+        })
+        .filter((tool): tool is NonNullable<typeof tool> => tool !== null),
+    [mcp.tools],
+  );
+  const [selectedUri, setSelectedUri] = useState<string | undefined>();
+
+  const selectedApp = appTools.find((tool) => tool.uri === selectedUri) ?? appTools[0] ?? undefined;
+
+  useEffect(() => {
+    if (selectedUri && !appTools.some((tool) => tool.uri === selectedUri)) {
+      setSelectedUri(undefined);
+    }
+  }, [appTools, selectedUri]);
+
+  if (!mcp.client || !selectedApp) {
+    return null;
+  }
+
+  return (
+    <section aria-label="MCP Apps" className="mcp-apps-proof">
+      <header className="mcp-apps-proof-header">
+        <div>
+          <h3>MCP Apps</h3>
+          <p>
+            Rendering <code>{selectedApp.uri}</code> through the connected MCP client.
+          </p>
+        </div>
+        {appTools.length > 1 ? (
+          <div className="mcp-app-picker" role="group">
+            {appTools.map((appTool) => (
+              <button
+                aria-pressed={appTool.uri === selectedApp.uri}
+                key={appTool.uri}
+                onClick={() => setSelectedUri(appTool.uri)}
+                type="button"
+              >
+                {appTool.name}
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </header>
+      <McpAppView
+        className="mcp-app-frame"
+        client={mcp.client}
+        title={`${selectedApp.name} MCP App`}
+        tools={mcp.tools}
+        uri={selectedApp.uri}
+      />
     </section>
   );
 }
@@ -1518,6 +1600,7 @@ function createConnectionOptions(draft: ConnectionDraft, resolvedUrl: string): U
     ...(draft.authMode === "bearer" && draft.bearerToken.trim()
       ? { bearerToken: draft.bearerToken.trim() }
       : {}),
+    clientCapabilities: createMcpAppClientCapabilities(),
     enabled: Boolean(resolvedUrl),
     ...(oauth ? { oauth } : {}),
     ...appOwnedTransportProxyOptions(resolvedUrl, draft.proxyEnabled),

@@ -944,6 +944,62 @@ code {
   padding: 12px;
 }
 
+/* MCP Apps ------------------------------------------------------------ */
+
+.mcp-apps-proof {
+  border: 1px solid var(--color-soft);
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.mcp-apps-proof-header {
+  align-items: flex-start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.mcp-apps-proof h3 {
+  font-size: 0.92rem;
+  margin: 0;
+}
+
+.mcp-apps-proof p {
+  color: var(--color-muted);
+  font-size: 0.82rem;
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.mcp-app-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.mcp-app-picker button {
+  font-size: 0.8rem;
+  min-height: 30px;
+}
+
+.mcp-app-picker button[aria-pressed="true"] {
+  background: var(--color-ink);
+  border-color: var(--color-ink);
+  color: var(--color-accent);
+}
+
+.mcp-app-frame {
+  background: var(--color-surface);
+  border: 1px solid var(--color-soft);
+  border-radius: 8px;
+  display: block;
+  min-height: 360px;
+  width: 100%;
+}
+
 /* Catalog ------------------------------------------------------------- */
 
 .catalog-grid {
