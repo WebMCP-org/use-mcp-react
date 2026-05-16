@@ -12,7 +12,7 @@ import {
 } from "../../src/index.ts";
 import { worker } from "./setup.js";
 import { renderHookProbe } from "./support/renderHookProbe.js";
-import { createOAuthMcpTestServer } from "./support/oauthMcpServer.js";
+import { createOAuthMcpTestServer, type OAuthMcpTestServer } from "./support/oauthMcpServer.js";
 
 describe("useMcp", () => {
   it("publishes OAuth callback parameters through BroadcastChannel", async () => {
@@ -307,7 +307,7 @@ describe("useMcp", () => {
         .length,
     ).toBeGreaterThanOrEqual(5);
 
-    await probe.result.current.client?.close();
+    await probe.act(() => probe.result.current.disconnect());
     await probe.unmount();
   });
 
@@ -364,7 +364,7 @@ describe("useMcp", () => {
     expect(popupClosed).toBe(true);
     expect(probe.result.current.tools.map((tool) => tool.name)).toContain("whoami");
 
-    await probe.result.current.client?.close();
+    await probe.act(() => probe.result.current.disconnect());
     await probe.unmount();
   });
 
@@ -396,7 +396,7 @@ describe("useMcp", () => {
       status: "ready",
     });
 
-    await probe.result.current.client?.close();
+    await probe.act(() => probe.result.current.disconnect());
     await probe.unmount();
   });
 
@@ -904,6 +904,401 @@ describe("useMcp", () => {
     expect(probe.result.current.status).toBe("ready");
     expect(probe.result.current.tools.map((tool) => tool.name)).toContain("whoami");
     expect(mcpPostRequestCount(server.requestLog)).toBe(mcpRequestsAfterReady);
+
+    await probe.result.current.client?.close();
+    await probe.unmount();
+  });
+
+  it("passes client capabilities and client options into SDK initialize without reconnecting for equivalent inline options", async () => {
+    const server = createOAuthMcpTestServer({
+      requireAuth: false,
+      transportMode: "stateless",
+    });
+    worker.use(...server.handlers);
+
+    const probe = await renderHookProbe(
+      (_props?: { nonce: number }) =>
+        useMcp({
+          clientCapabilities: {
+            extensions: {
+              "io.modelcontextprotocol/ui": {},
+            },
+          },
+          clientOptions: {
+            capabilities: {
+              experimental: {
+                "example.dev/host": {},
+              },
+            },
+            enforceStrictCapabilities: true,
+          },
+          url: server.mcpUrl,
+        }),
+      (mcp) => ({
+        status: mcp.status,
+        toolNames: mcp.tools.map((tool) => tool.name),
+      }),
+      {
+        initialProps: { nonce: 0 },
+      },
+    );
+
+    await vi.waitFor(() => {
+      expect(probe.result.current.status).toBe("ready");
+    });
+
+    expect(server.requestLog).toContainEqual(
+      expect.objectContaining({
+        initializeCapabilities: {
+          experimental: {
+            "example.dev/host": {},
+          },
+          extensions: {
+            "io.modelcontextprotocol/ui": {},
+          },
+        },
+        jsonRpcMethod: "initialize",
+      }),
+    );
+    const mcpRequestsAfterReady = mcpPostRequestCount(server.requestLog);
+
+    await probe.rerender({ nonce: 1 });
+    await new Promise<void>((resolve) => {
+      window.setTimeout(resolve, 120);
+    });
+
+    expect(probe.result.current.status).toBe("ready");
+    expect(mcpPostRequestCount(server.requestLog)).toBe(mcpRequestsAfterReady);
+
+    await probe.result.current.client?.close();
+    await probe.unmount();
+  });
+
+  it("refreshes only the catalog section named by list-changed notifications", async () => {
+    const server = createOAuthMcpTestServer({
+      requireAuth: false,
+      transportMode: "stateful",
+    });
+    worker.use(...server.handlers);
+
+    const probe = await renderHookProbe(
+      () => useMcp({ url: server.mcpUrl }),
+      (mcp) => ({
+        promptNames: mcp.prompts.map((prompt) => prompt.name),
+        resourceUris: mcp.resources.map((resource) => resource.uri),
+        status: mcp.status,
+        toolNames: mcp.tools.map((tool) => tool.name),
+      }),
+    );
+
+    await vi.waitFor(() => {
+      expect(probe.result.current.status).toBe("ready");
+    });
+    const originalTools = probe.result.current.tools;
+    const originalResources = probe.result.current.resources;
+    const originalResourceTemplates = probe.result.current.resourceTemplates;
+    const originalPrompts = probe.result.current.prompts;
+    const originalCallTool = probe.result.current.callTool;
+    const originalReadResource = probe.result.current.readResource;
+    const originalGetPrompt = probe.result.current.getPrompt;
+    const originalComplete = probe.result.current.complete;
+
+    server.registerTool("dynamic-tool");
+    server.sendToolListChanged();
+
+    await vi.waitFor(() => {
+      expect(probe.result.current.tools.map((tool) => tool.name)).toContain("dynamic-tool");
+    });
+    expect(probe.result.current.tools).not.toBe(originalTools);
+    expect(probe.result.current.resources).toBe(originalResources);
+    expect(probe.result.current.resourceTemplates).toBe(originalResourceTemplates);
+    expect(probe.result.current.prompts).toBe(originalPrompts);
+    expect(probe.result.current.callTool).toBe(originalCallTool);
+    expect(probe.result.current.readResource).toBe(originalReadResource);
+    expect(probe.result.current.getPrompt).toBe(originalGetPrompt);
+    expect(probe.result.current.complete).toBe(originalComplete);
+
+    const resourcesAfterToolRefresh = probe.result.current.resources;
+    const resourceTemplatesAfterToolRefresh = probe.result.current.resourceTemplates;
+    const promptsAfterToolRefresh = probe.result.current.prompts;
+    server.registerResource("mcp-test://dynamic-resource");
+    server.sendResourceListChanged();
+
+    await vi.waitFor(() => {
+      expect(probe.result.current.resources.map((resource) => resource.uri)).toContain(
+        "mcp-test://dynamic-resource",
+      );
+    });
+    expect(probe.result.current.prompts).toBe(promptsAfterToolRefresh);
+    expect(probe.result.current.resourceTemplates).toBe(resourceTemplatesAfterToolRefresh);
+    expect(probe.result.current.resources).not.toBe(resourcesAfterToolRefresh);
+    expect(probe.result.current.callTool).toBe(originalCallTool);
+    expect(probe.result.current.readResource).toBe(originalReadResource);
+    expect(probe.result.current.getPrompt).toBe(originalGetPrompt);
+    expect(probe.result.current.complete).toBe(originalComplete);
+
+    server.registerPrompt("dynamic-prompt");
+    server.sendPromptListChanged();
+
+    await vi.waitFor(() => {
+      expect(probe.result.current.prompts.map((prompt) => prompt.name)).toContain("dynamic-prompt");
+    });
+    expect(probe.result.current.resourceTemplates).toBe(resourceTemplatesAfterToolRefresh);
+    expect(probe.result.current.callTool).toBe(originalCallTool);
+    expect(probe.result.current.readResource).toBe(originalReadResource);
+    expect(probe.result.current.getPrompt).toBe(originalGetPrompt);
+    expect(probe.result.current.complete).toBe(originalComplete);
+    expect(probe.result.current.catalogStatus).toBe("ready");
+    expect(probe.result.current.catalogErrors).toEqual({});
+
+    await probe.act(() => probe.result.current.disconnect());
+    await probe.unmount();
+  });
+
+  it.each([
+    {
+      expectedItems: ["whoami"],
+      jsonRpcMethod: "tools/list",
+      label: "tools",
+      readItems: (mcp: ReturnType<typeof useMcp>) => mcp.tools.map((tool) => tool.name),
+      sendListChanged: (server: OAuthMcpTestServer) => server.sendToolListChanged(),
+    },
+    {
+      expectedItems: ["mcp-test://profile", "mcp-test://profiles/current"],
+      jsonRpcMethod: "resources/list",
+      label: "resources",
+      readItems: (mcp: ReturnType<typeof useMcp>) => mcp.resources.map((resource) => resource.uri),
+      sendListChanged: (server: OAuthMcpTestServer) => server.sendResourceListChanged(),
+    },
+    {
+      expectedItems: ["summarize-profile"],
+      jsonRpcMethod: "prompts/list",
+      label: "prompts",
+      readItems: (mcp: ReturnType<typeof useMcp>) => mcp.prompts.map((prompt) => prompt.name),
+      sendListChanged: (server: OAuthMcpTestServer) => server.sendPromptListChanged(),
+    },
+  ])(
+    "does not re-render when a $label list-changed refresh returns a semantically unchanged catalog section",
+    async ({ expectedItems, jsonRpcMethod, readItems, sendListChanged }) => {
+      const server = createOAuthMcpTestServer({
+        requireAuth: false,
+        transportMode: "stateful",
+      });
+      worker.use(...server.handlers);
+
+      const probe = await renderHookProbe(
+        () => useMcp({ url: server.mcpUrl }),
+        (mcp) => ({
+          catalogErrors: mcp.catalogErrors,
+          catalogStatus: mcp.catalogStatus,
+          items: readItems(mcp),
+          status: mcp.status,
+        }),
+      );
+
+      await vi.waitFor(() => {
+        expect(probe.result.current.status).toBe("ready");
+      });
+
+      const listRequestsAfterReady = mcpJsonRpcRequestCount(server.requestLog, jsonRpcMethod);
+      const renderCountAfterReady = probe.snapshots().length;
+
+      sendListChanged(server);
+
+      await vi.waitFor(() => {
+        expect(mcpJsonRpcRequestCount(server.requestLog, jsonRpcMethod)).toBeGreaterThan(
+          listRequestsAfterReady,
+        );
+      });
+      await new Promise<void>((resolve) => {
+        window.setTimeout(resolve, 80);
+      });
+
+      expect(probe.result.current.status).toBe("ready");
+      expect(probe.result.current.catalogStatus).toBe("ready");
+      expect(probe.result.current.catalogErrors).toEqual({});
+      expect(readItems(probe.result.current)).toEqual(expectedItems);
+      expect(probe.snapshots()).toHaveLength(renderCountAfterReady);
+
+      await probe.act(() => probe.result.current.disconnect());
+      await probe.unmount();
+    },
+  );
+
+  it("keeps the active client ready when a live catalog refresh fails", async () => {
+    const server = createOAuthMcpTestServer({
+      requireAuth: false,
+      transportMode: "stateful",
+    });
+    worker.use(...server.handlers);
+
+    const probe = await renderHookProbe(
+      () => useMcp({ url: server.mcpUrl }),
+      (mcp) => ({
+        catalogStatus: mcp.catalogStatus,
+        status: mcp.status,
+        toolNames: mcp.tools.map((tool) => tool.name),
+      }),
+    );
+
+    await vi.waitFor(() => {
+      expect(probe.result.current.status).toBe("ready");
+    });
+    const client = probe.result.current.client;
+    const resources = probe.result.current.resources;
+    const resourceTemplates = probe.result.current.resourceTemplates;
+    const prompts = probe.result.current.prompts;
+
+    server.failCatalogMethods(["tools/list"]);
+    server.sendToolListChanged();
+
+    await vi.waitFor(() => {
+      expect(probe.result.current.catalogStatus).toBe("partial");
+    });
+
+    expect(probe.result.current.client).toBe(client);
+    expect(probe.result.current.status).toBe("ready");
+    expect(probe.result.current.resources).toBe(resources);
+    expect(probe.result.current.resourceTemplates).toBe(resourceTemplates);
+    expect(probe.result.current.prompts).toBe(prompts);
+    expect(probe.result.current.catalogErrors).toHaveProperty("tools");
+    expect(probe.result.current.serverProfile?.catalog.tools).toMatchObject({
+      complete: false,
+      error: expect.any(Error),
+      items: [{ name: "whoami" }],
+    });
+
+    await probe.act(() => probe.result.current.disconnect());
+    await probe.unmount();
+  });
+
+  it("ignores stale list-changed refreshes after reconnecting to a newer connection", async () => {
+    const firstServer = createOAuthMcpTestServer({
+      mcpPath: "/mcp-stale-first",
+      randomResponseDelay: { maxMs: 80, seed: 1 },
+      requireAuth: false,
+      transportMode: "stateful",
+    });
+    const secondServer = createOAuthMcpTestServer({
+      mcpPath: "/mcp-stale-second",
+      requireAuth: false,
+      transportMode: "stateful",
+    });
+    worker.use(...firstServer.handlers, ...secondServer.handlers);
+
+    const probe = await renderHookProbe(
+      (props?: { url: string }) => useMcp({ url: props!.url }),
+      (mcp) => ({
+        status: mcp.status,
+        toolNames: mcp.tools.map((tool) => tool.name),
+      }),
+      {
+        initialProps: { url: firstServer.mcpUrl },
+      },
+    );
+
+    await vi.waitFor(() => {
+      expect(probe.result.current.status).toBe("ready");
+    });
+
+    firstServer.registerTool("stale-tool");
+    firstServer.sendToolListChanged();
+    await probe.rerender({ url: secondServer.mcpUrl });
+
+    await vi.waitFor(() => {
+      expect(probe.result.current.status).toBe("ready");
+    });
+    await new Promise<void>((resolve) => {
+      window.setTimeout(resolve, 160);
+    });
+
+    expect(probe.result.current.serverProfile?.url).toBe(secondServer.mcpUrl);
+    expect(probe.result.current.tools.map((tool) => tool.name)).not.toContain("stale-tool");
+
+    await probe.act(() => probe.result.current.disconnect());
+    await probe.unmount();
+  });
+
+  it("wraps MCP operations with structured results and stable identities", async () => {
+    const server = createOAuthMcpTestServer({
+      requireAuth: false,
+      transportMode: "stateless",
+    });
+    worker.use(...server.handlers);
+
+    const probe = await renderHookProbe(
+      () => useMcp({ enabled: false, url: server.mcpUrl }),
+      (mcp) => ({
+        callTool: mcp.callTool,
+        status: mcp.status,
+      }),
+    );
+
+    expect(await probe.result.current.callTool({ name: "whoami" })).toEqual({
+      ok: false,
+      reason: "not_connected",
+    });
+    const initialCallTool = probe.result.current.callTool;
+    const initialReadResource = probe.result.current.readResource;
+    const initialGetPrompt = probe.result.current.getPrompt;
+    const initialComplete = probe.result.current.complete;
+
+    await probe.act(() => probe.result.current.connect({ enabled: true }));
+    await vi.waitFor(() => {
+      expect(probe.result.current.status).toBe("ready");
+    });
+
+    expect(probe.result.current.callTool).toBe(initialCallTool);
+    expect(probe.result.current.readResource).toBe(initialReadResource);
+    expect(probe.result.current.getPrompt).toBe(initialGetPrompt);
+    expect(probe.result.current.complete).toBe(initialComplete);
+
+    const abortController = new AbortController();
+    const requestOptions = {
+      onprogress: vi.fn(),
+      signal: abortController.signal,
+      timeout: 1_000,
+    };
+    const client = probe.result.current.client!;
+    const callToolSpy = vi.spyOn(client, "callTool");
+
+    const toolResult = await probe.result.current.callTool(
+      {
+        arguments: {},
+        name: "whoami",
+      },
+      requestOptions,
+    );
+    const resourceResult = await probe.result.current.readResource({
+      uri: "mcp-test://profile",
+    });
+    const promptResult = await probe.result.current.getPrompt({
+      name: "summarize-profile",
+    });
+    const completeResult = await probe.result.current.complete({
+      argument: { name: "profileId", value: "c" },
+      ref: { type: "ref/resource", uri: "mcp-test://profiles/{profileId}" },
+    });
+
+    expect(toolResult.ok).toBe(true);
+    expect(resourceResult.ok).toBe(true);
+    expect(promptResult.ok).toBe(true);
+    expect(completeResult).toMatchObject({
+      ok: true,
+      result: {
+        completion: {
+          values: ["current"],
+        },
+      },
+    });
+    expect(callToolSpy).toHaveBeenCalledWith(
+      {
+        arguments: {},
+        name: "whoami",
+      },
+      undefined,
+      requestOptions,
+    );
 
     await probe.result.current.client?.close();
     await probe.unmount();
@@ -2994,6 +3389,15 @@ function registerRequestCount(requestLog: Array<{ method: string; pathname: stri
 
 function mcpPostRequestCount(requestLog: Array<{ method: string; pathname: string }>): number {
   return requestLog.filter((entry) => entry.method === "POST" && entry.pathname === "/mcp").length;
+}
+
+function mcpJsonRpcRequestCount(
+  requestLog: Array<{ jsonRpcMethod?: string; method: string }>,
+  jsonRpcMethod: string,
+): number {
+  return requestLog.filter(
+    (entry) => entry.method === "POST" && entry.jsonRpcMethod === jsonRpcMethod,
+  ).length;
 }
 
 function tokenRequestCount(requestLog: Array<{ method: string; pathname: string }>): number {

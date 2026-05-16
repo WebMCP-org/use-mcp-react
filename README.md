@@ -225,6 +225,8 @@ Backend gateway mode, where your server owns OAuth tokens, tool policy, approval
 ```ts
 type UseMcpOptions = {
   bearerToken?: string;
+  clientCapabilities?: ClientCapabilities;
+  clientOptions?: ClientOptions;
   enabled?: boolean;
   oauth?: {
     clientId?: string;
@@ -294,11 +296,15 @@ type McpAuthRequirement =
 | `authorizationUrl`                                   | Prepared OAuth authorization URL when OAuth is pending.                  |
 | `client`                                             | Connected MCP SDK `Client`, or `null` until ready.                       |
 | `transport`                                          | Connected `StreamableHTTPClientTransport`, or `null` until ready.        |
-| `tools`, `resources`, `resourceTemplates`, `prompts` | Initial MCP catalog arrays. Unsupported sections are empty arrays.       |
+| `tools`, `resources`, `resourceTemplates`, `prompts` | MCP catalog arrays. Unsupported sections are empty arrays.               |
 | `catalogStatus`, `catalogErrors`                     | Catalog loading result. A server can be ready with a partial catalog.    |
 | `serverCapabilities`, `serverVersion`                | Values reported by MCP initialize.                                       |
 | `serverProfile`                                      | Runtime snapshot of initialize, transport, auth mode, and catalog state. |
 | `error`                                              | Last unrecoverable connection, auth, or catalog error.                   |
+
+`clientCapabilities` is a narrow way to advertise client capabilities during MCP initialize. It is merged with `clientOptions.capabilities`, including extension capability keys such as `extensions["io.modelcontextprotocol/ui"]`. `clientOptions` is passed to the SDK `Client` for advanced configuration such as strict capability enforcement or SDK validators.
+
+When a connected server advertises `tools.listChanged`, `resources.listChanged`, or `prompts.listChanged`, the hook refreshes the relevant catalog section after SDK list-changed notifications. Refresh failures update `catalogStatus`, `catalogErrors`, and `serverProfile.catalog` without disconnecting the active client.
 
 ### Actions
 
@@ -313,6 +319,10 @@ Every async action returns `Promise<McpActionResult>` so UI code can handle fail
 | `forget()`                         | Clear hook-owned auth, connection, server, catalog, and error state.                     |
 | `authorize(options?)`              | Open, focus, or navigate a pending OAuth popup.                                          |
 | `finishAuthorization(code, state)` | Complete an OAuth callback when `state` matches the pending attempt.                     |
+| `callTool(params, options?)`       | Call `client.callTool` and return a structured operation result.                         |
+| `readResource(params, options?)`   | Call `client.readResource` and return a structured operation result.                     |
+| `getPrompt(params, options?)`      | Call `client.getPrompt` and return a structured operation result.                        |
+| `complete(params, options?)`       | Call `client.complete` and return a structured operation result.                         |
 
 `connect`, `reconnect`, and `reauthorize` accept one-shot overrides:
 
@@ -325,6 +335,8 @@ type UseMcpActionOptions = Partial<UseMcpOptions> & {
 ```
 
 When a new connection action starts, it supersedes older pending work for the same hook instance. Late results from older attempts are ignored.
+
+Operation wrappers return `{ ok: true, result }`, `{ ok: false, reason: "not_connected" }`, or `{ ok: false, reason: "failed", error }`. They accept SDK request options, including abort signals, timeouts, and progress callbacks where the SDK method supports them. The raw `client` remains available for advanced SDK use.
 
 ## OAuth Callback
 
