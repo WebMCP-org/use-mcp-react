@@ -85,7 +85,7 @@ const presets: Preset[] = [
     proxyNote:
       "Excalidraw is a hosted no-auth MCP Apps server. It advertises create_view with ui://excalidraw/mcp-app.html so the playground can render the upstream whiteboard app.",
     tag: "MCP App",
-    url: "https://mcp.excalidraw.com",
+    url: "https://mcp.excalidraw.com/mcp",
   },
   {
     authMode: "auto",

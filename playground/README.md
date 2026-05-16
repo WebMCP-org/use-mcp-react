@@ -29,7 +29,7 @@ The playground also serves a Client ID Metadata Document at `/.well-known/oauth-
 
 | Preset               | URL                                | Expected verdict                                                                      |
 | -------------------- | ---------------------------------- | ------------------------------------------------------------------------------------- |
-| Excalidraw           | `https://mcp.excalidraw.com`       | `authRequirement = null`; advertises `create_view` as an MCP Apps UI resource         |
+| Excalidraw           | `https://mcp.excalidraw.com/mcp`   | `authRequirement = null`; advertises `create_view` as an MCP Apps UI resource         |
 | Postman              | `https://mcp.postman.com/code`     | `type: "oauth"` through `/api/mcp-proxy`; supports OAuth metadata, DCR, and PKCE      |
 | DeepWiki             | `https://mcp.deepwiki.com/mcp`     | `authRequirement = null` through `/api/mcp-proxy`                                     |
 | Linear               | `https://mcp.linear.app/mcp`       | `type: "oauth"` through `/api/mcp-proxy`; toggle CIMD on to use the metadata document |

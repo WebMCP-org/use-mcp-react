@@ -13,7 +13,9 @@ describe("playground", () => {
 
     await page.getByRole("button", { name: /Excalidraw/ }).click();
 
-    await expect.element(page.getByLabelText("MCP URL")).toHaveValue("https://mcp.excalidraw.com");
+    await expect
+      .element(page.getByLabelText("MCP URL"))
+      .toHaveValue("https://mcp.excalidraw.com/mcp");
     expect(document.body.textContent).toContain("Excalidraw is a hosted no-auth MCP Apps server.");
     expect(document.body.textContent).toContain("ui://excalidraw/mcp-app.html");
   });
