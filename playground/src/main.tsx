@@ -58,12 +58,12 @@ const defaultRedirectUrl = `${window.location.origin}/oauth/callback`;
 const presets: Preset[] = [
   {
     authMode: "auto",
-    id: "canva",
-    name: "Canva",
+    id: "postman-code",
+    name: "Postman",
     proxyNote:
-      "Canva is a hosted remote MCP server. OAuth stays in the browser; MCP transport goes through the playground proxy route.",
+      "Postman is a hosted remote MCP server with OAuth metadata, DCR, and PKCE. OAuth stays in the browser; MCP transport goes through the playground proxy route.",
     tag: "Remote OAuth",
-    url: "https://mcp.canva.com/mcp",
+    url: "https://mcp.postman.com/code",
   },
   {
     authMode: "auto",

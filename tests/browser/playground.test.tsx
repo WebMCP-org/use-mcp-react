@@ -7,6 +7,20 @@ import { worker } from "./setup.js";
 import { createOAuthMcpTestServer } from "./support/oauthMcpServer.js";
 
 describe("playground", () => {
+  it("offers Postman as the hosted remote OAuth preset", async () => {
+    await render(<App />);
+
+    await page.getByRole("button", { name: /Postman/ }).click();
+
+    await expect
+      .element(page.getByLabelText("MCP URL"))
+      .toHaveValue("https://mcp.postman.com/code");
+    expect(document.body.textContent).toContain(
+      "Postman is a hosted remote MCP server with OAuth metadata, DCR, and PKCE.",
+    );
+    expect(document.body.textContent).not.toContain("mcp.canva.com");
+  });
+
   it("shows only the actions that make sense for the current connection state", async () => {
     const server = createOAuthMcpTestServer({
       randomResponseDelay: { maxMs: 60, seed: 53 },

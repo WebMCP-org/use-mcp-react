@@ -29,7 +29,7 @@ The playground also serves a Client ID Metadata Document at `/.well-known/oauth-
 
 | Preset               | URL                                | Expected verdict                                                                      |
 | -------------------- | ---------------------------------- | ------------------------------------------------------------------------------------- |
-| Canva                | `https://mcp.canva.com/mcp`        | `type: "oauth"` through `/api/mcp-proxy`                                              |
+| Postman              | `https://mcp.postman.com/code`     | `type: "oauth"` through `/api/mcp-proxy`; supports OAuth metadata, DCR, and PKCE      |
 | DeepWiki             | `https://mcp.deepwiki.com/mcp`     | `authRequirement = null` through `/api/mcp-proxy`                                     |
 | Linear               | `https://mcp.linear.app/mcp`       | `type: "oauth"` through `/api/mcp-proxy`; toggle CIMD on to use the metadata document |
 | Firecrawl            | `https://mcp.firecrawl.dev/v2/mcp` | `type: "bearer"` through `/api/mcp-proxy`                                             |
@@ -61,7 +61,7 @@ Run the same shape locally with `vp run playground`; deploy it with `vp run use-
 ## Sources
 
 - DeepWiki MCP: https://mcp.deepwiki.com/mcp
-- Canva MCP: https://www.canva.dev/docs/mcp/
+- Postman MCP: https://learning.postman.com/docs/developer/postman-api/postman-mcp-server/postman-mcp-remote-server/
 - Official MCP example remote server: https://github.com/modelcontextprotocol/example-remote-server
 - Linear MCP: https://linear.app/docs/mcp
 - Stripe MCP: https://docs.stripe.com/mcp
