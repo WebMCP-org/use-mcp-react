@@ -41,7 +41,8 @@ body {
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
 }
 
@@ -86,7 +87,8 @@ button.primary:disabled {
 }
 
 input,
-select {
+select,
+textarea {
   border: 1px solid var(--color-soft);
   border-radius: 8px;
   background: var(--color-surface);
@@ -97,10 +99,17 @@ select {
 }
 
 input:focus,
-select:focus {
+select:focus,
+textarea:focus {
   border-color: var(--color-ink);
   outline: 2px solid var(--color-accent);
   outline-offset: 1px;
+}
+
+textarea {
+  min-height: 88px;
+  padding: 10px 12px;
+  resize: vertical;
 }
 
 a {
@@ -998,6 +1007,102 @@ code {
   display: block;
   min-height: 360px;
   width: 100%;
+}
+
+/* Tool calls ---------------------------------------------------------- */
+
+.tool-call-panel {
+  border-top: 1px solid var(--color-soft);
+  display: grid;
+  gap: 12px;
+  padding-top: 14px;
+}
+
+.tool-call-header {
+  align-items: end;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 240px);
+}
+
+.tool-call-header h3 {
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+.tool-call-header p {
+  color: var(--color-muted);
+  font-size: 0.82rem;
+  margin: 2px 0 0;
+}
+
+.tool-call-header label,
+.tool-call-field {
+  display: grid;
+  gap: 5px;
+}
+
+.tool-call-header label span,
+.tool-call-field > span {
+  color: var(--color-muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.tool-call-field > span strong {
+  color: var(--color-error-ink);
+  margin-left: 3px;
+}
+
+.tool-call-form {
+  display: grid;
+  gap: 10px;
+}
+
+.tool-call-fields {
+  display: grid;
+  gap: 10px;
+}
+
+.tool-call-field input[type="checkbox"] {
+  height: 20px;
+  min-height: 20px;
+  width: 20px;
+}
+
+.tool-call-help {
+  color: var(--color-muted);
+  font-size: 0.76rem;
+}
+
+.tool-call-actions {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.tool-call-empty {
+  color: var(--color-muted);
+  font-size: 0.84rem;
+  margin: 0;
+}
+
+.tool-call-error {
+  color: var(--color-error-ink);
+  font-size: 0.8rem;
+  margin: 0;
+}
+
+.tool-call-result {
+  background: #101a15;
+  border-radius: 8px;
+  color: #e7f4e8;
+  font-size: 0.78rem;
+  margin: 0;
+  overflow: auto;
+  padding: 10px 12px;
+  white-space: pre-wrap;
 }
 
 /* Catalog ------------------------------------------------------------- */

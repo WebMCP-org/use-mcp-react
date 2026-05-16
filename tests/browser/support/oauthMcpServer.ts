@@ -6,6 +6,7 @@ import type {
   OAuthClientInformationFull,
   OAuthClientMetadata,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
+import type { z } from "zod/v4";
 
 type TransportMode = "stateful" | "stateless";
 
@@ -34,7 +35,9 @@ type RefreshToken = {
 };
 
 type DynamicToolOptions = {
+  inputSchema?: Record<string, z.ZodType>;
   metadata?: Record<string, unknown>;
+  responseText?: (args: unknown) => string;
 };
 
 type RequestLogEntry = {
@@ -984,16 +987,21 @@ function registerDynamicTool(
     name,
     {
       description: `Dynamic test tool ${name}.`,
+      ...(options.inputSchema ? { inputSchema: options.inputSchema } : {}),
       ...(options.metadata ? { _meta: options.metadata } : {}),
     },
-    () => ({
-      content: [
-        {
-          type: "text",
-          text: name,
-        },
-      ],
-    }),
+    (argsOrExtra) => {
+      const args = options.inputSchema ? argsOrExtra : undefined;
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: options.responseText ? options.responseText(args) : name,
+          },
+        ],
+      };
+    },
   );
 }
 

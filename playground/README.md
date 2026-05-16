@@ -6,7 +6,7 @@ Run locally:
 vp run playground
 ```
 
-The playground is a single-screen live demo of the library's actual pitch: paste any Streamable HTTP MCP URL and watch the hook **infer the auth scheme and recommend the input UI** you should render to your user. Tool invocation is not demoed — that's `@modelcontextprotocol/sdk`'s job.
+The playground is a single-screen live demo of the library's actual pitch: paste any Streamable HTTP MCP URL and watch the hook **infer the auth scheme and recommend the input UI** you should render to your user. Once connected, the playground also turns advertised tool input schemas into callable forms.
 
 ## What the demo shows
 
@@ -15,7 +15,7 @@ The playground is a single-screen live demo of the library's actual pitch: paste
 3. **Client ID Metadata Document toggle.** Publish or withhold `/.well-known/oauth-client-metadata.json` so you can compare CIMD with the server's default registration path.
 4. **Discovery timeline.** Each phase of the hook's probing lights up as it happens: endpoint reach → no-auth probe → resource metadata → authorization server → registration strategy.
 5. **Inference verdict, "Render this" UI, and the React code branch.** Three equal-weight cards. The middle card is a live, working input form — clicking the OAuth button or submitting the bearer/client-id form actually drives the connection.
-6. **Proof of life.** Once `mcp.status === "ready"`, the server identity, capabilities, and catalog counts/listings appear. No invocation UI.
+6. **Proof of life + tool calls.** Once `mcp.status === "ready"`, the server identity, capabilities, catalog counts/listings, and a schema-driven tool call form appear.
 7. **MCP Apps rendering.** If a connected server advertises tool UI resources through MCP Apps metadata, the playground renders the upstream `ui://` resource with `McpAppView`.
 
 ## Bundled presets

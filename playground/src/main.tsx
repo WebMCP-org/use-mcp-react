@@ -1,11 +1,16 @@
 import { StrictMode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { ajvResolver } from "@hookform/resolvers/ajv";
+import type { JSONSchemaType } from "ajv";
+import { useForm, type SubmitHandler } from "react-hook-form";
+import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import {
   McpOAuthCallback,
   MCP_OAUTH_CALLBACK_CHANNEL,
   useMcp,
   type McpActionResult,
   type McpAuthDiagnostics,
+  type McpCallToolResult,
   type McpOAuthCallbackMessage,
   type UseMcpOptions,
   type UseMcpResult,
@@ -52,6 +57,23 @@ type DiscoveryStep = {
 };
 
 type VerdictFact = { label: string; mono?: boolean; value: string };
+
+type JsonObjectSchema = Record<string, unknown> & {
+  properties?: Record<string, JsonSchemaProperty>;
+  required?: string[];
+  type?: string | string[];
+};
+
+type JsonSchemaProperty = Record<string, unknown> & {
+  default?: unknown;
+  description?: string;
+  enum?: unknown[];
+  format?: string;
+  title?: string;
+  type?: string | string[];
+};
+
+type ToolFormValues = Record<string, unknown>;
 
 const defaultRedirectUrl = `${window.location.origin}/oauth/callback`;
 
@@ -1035,6 +1057,8 @@ function ConnectionProof({
 
       <McpAppsProof mcp={mcp} />
 
+      <ToolCallPanel mcp={mcp} />
+
       <details className="more">
         <summary>Catalog{catalogSummary ? ` — ${catalogSummary}` : ""}</summary>
         <CatalogList
@@ -1131,6 +1155,228 @@ function McpAppsProof({ mcp }: { mcp: UseMcpResult }) {
   );
 }
 
+function ToolCallPanel({ mcp }: { mcp: UseMcpResult }) {
+  const callableTools = mcp.tools;
+  const [selectedName, setSelectedName] = useState<string | undefined>();
+  const selectedTool =
+    callableTools.find((tool) => tool.name === selectedName) ?? callableTools[0] ?? undefined;
+
+  if (!selectedTool) {
+    return null;
+  }
+
+  return (
+    <section aria-label="Tool runner" className="tool-call-panel">
+      <header className="tool-call-header">
+        <div>
+          <h3>Call a tool</h3>
+          <p>Build arguments from the advertised MCP input schema.</p>
+        </div>
+        <label>
+          <span>Tool</span>
+          <select
+            aria-label="Tool"
+            onChange={(event) => setSelectedName(event.currentTarget.value)}
+            value={selectedTool.name}
+          >
+            {callableTools.map((tool) => (
+              <option key={tool.name} value={tool.name}>
+                {tool.title ?? tool.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      </header>
+      <ToolCallForm key={selectedTool.name} mcp={mcp} tool={selectedTool} />
+    </section>
+  );
+}
+
+function ToolCallForm({ mcp, tool }: { mcp: UseMcpResult; tool: Tool }) {
+  const schema = useMemo(() => normalizeToolInputSchema(tool.inputSchema), [tool.inputSchema]);
+  const fields = useMemo(() => Object.entries(schema.properties ?? {}), [schema]);
+  const requiredFields = useMemo(() => new Set(schema.required ?? []), [schema.required]);
+  const [result, setResult] = useState<McpCallToolResult | undefined>();
+  const [error, setError] = useState<string | undefined>();
+  const {
+    formState: { errors, isSubmitting },
+    handleSubmit,
+    register,
+  } = useForm<ToolFormValues>({
+    defaultValues: createDefaultToolArguments(schema),
+    mode: "onSubmit",
+    resolver: ajvResolver(toAjvResolverSchema(schema), { coerceTypes: true, strict: false }),
+  });
+
+  const onSubmit: SubmitHandler<ToolFormValues> = async (values) => {
+    setError(undefined);
+    setResult(undefined);
+
+    const response = await mcp.callTool({
+      arguments: normalizeSubmittedToolArguments(values, schema),
+      name: tool.name,
+    });
+
+    if (response.ok) {
+      setResult(response.result);
+      return;
+    }
+
+    setError(
+      response.reason === "not_connected" ? "MCP client is not connected." : response.error.message,
+    );
+  };
+
+  return (
+    <form className="tool-call-form" onSubmit={(event) => void handleSubmit(onSubmit)(event)}>
+      {fields.length === 0 ? (
+        <p className="tool-call-empty">This tool does not require arguments.</p>
+      ) : (
+        <div className="tool-call-fields">
+          {fields.map(([name, property]) => (
+            <ToolArgumentField
+              error={fieldErrorMessage(errors[name])}
+              key={name}
+              name={name}
+              property={property}
+              register={register}
+              required={requiredFields.has(name)}
+            />
+          ))}
+        </div>
+      )}
+      <div className="tool-call-actions">
+        <button className="primary" disabled={isSubmitting || mcp.status !== "ready"} type="submit">
+          {isSubmitting ? "Calling..." : "Call tool"}
+        </button>
+      </div>
+      {error ? (
+        <p className="tool-call-error" role="alert">
+          {error}
+        </p>
+      ) : null}
+      {result ? <pre className="tool-call-result">{formatToolCallResult(result)}</pre> : null}
+    </form>
+  );
+}
+
+function ToolArgumentField({
+  error,
+  name,
+  property,
+  register,
+  required,
+}: {
+  error?: string;
+  name: string;
+  property: JsonSchemaProperty;
+  register: ReturnType<typeof useForm<ToolFormValues>>["register"];
+  required: boolean;
+}) {
+  const label = property.title ?? formatSchemaPropertyName(name);
+  const description = typeof property.description === "string" ? property.description : undefined;
+  const type = firstJsonSchemaType(property.type);
+  const fieldId = `tool-argument-${name}`;
+  const helpId = `${fieldId}-help`;
+  const errorId = `${fieldId}-error`;
+
+  return (
+    <label className="tool-call-field" htmlFor={fieldId}>
+      <span>
+        {label}
+        {required ? <strong aria-label="required">*</strong> : null}
+      </span>
+      {renderToolArgumentControl({
+        describedBy: [description ? helpId : undefined, error ? errorId : undefined]
+          .filter(Boolean)
+          .join(" "),
+        id: fieldId,
+        name,
+        property,
+        register,
+        type,
+      })}
+      {description ? (
+        <small className="tool-call-help" id={helpId}>
+          {description}
+        </small>
+      ) : null}
+      {error ? (
+        <small className="tool-call-error" id={errorId}>
+          {error}
+        </small>
+      ) : null}
+    </label>
+  );
+}
+
+function renderToolArgumentControl({
+  describedBy,
+  id,
+  name,
+  property,
+  register,
+  type,
+}: {
+  describedBy: string;
+  id: string;
+  name: string;
+  property: JsonSchemaProperty;
+  register: ReturnType<typeof useForm<ToolFormValues>>["register"];
+  type: string | undefined;
+}) {
+  const ariaDescribedBy = describedBy || undefined;
+
+  if (property.enum?.length) {
+    return (
+      <select aria-describedby={ariaDescribedBy} id={id} {...register(name)}>
+        <option value="">Select...</option>
+        {property.enum.map((value) => (
+          <option key={String(value)} value={String(value)}>
+            {String(value)}
+          </option>
+        ))}
+      </select>
+    );
+  }
+
+  if (type === "boolean") {
+    return <input aria-describedby={ariaDescribedBy} id={id} type="checkbox" {...register(name)} />;
+  }
+
+  if (type === "integer" || type === "number") {
+    return (
+      <input
+        aria-describedby={ariaDescribedBy}
+        id={id}
+        step={type === "integer" ? "1" : "any"}
+        type="number"
+        {...register(name, { valueAsNumber: true })}
+      />
+    );
+  }
+
+  if (type === "array" || type === "object") {
+    return (
+      <textarea
+        aria-describedby={ariaDescribedBy}
+        id={id}
+        rows={4}
+        {...register(name, { setValueAs: parseJsonFormValue })}
+      />
+    );
+  }
+
+  return (
+    <input
+      aria-describedby={ariaDescribedBy}
+      id={id}
+      type={property.format === "uri" ? "url" : property.format === "email" ? "email" : "text"}
+      {...register(name)}
+    />
+  );
+}
+
 type CatalogEntry = {
   description?: string;
   name: string;
@@ -1197,6 +1443,116 @@ function Fact({ label, mono, value }: { label: string; mono?: boolean; value: st
       <dd className={mono ? "mono" : undefined}>{value}</dd>
     </div>
   );
+}
+
+function normalizeToolInputSchema(inputSchema: Tool["inputSchema"]): JsonObjectSchema {
+  if (!isRecord(inputSchema)) {
+    return { type: "object", properties: {} };
+  }
+
+  const properties = isRecord(inputSchema.properties)
+    ? Object.fromEntries(
+        Object.entries(inputSchema.properties).filter(
+          (entry): entry is [string, JsonSchemaProperty] => isRecord(entry[1]),
+        ),
+      )
+    : {};
+  const required = Array.isArray(inputSchema.required)
+    ? inputSchema.required.filter((field): field is string => typeof field === "string")
+    : [];
+
+  return {
+    ...inputSchema,
+    properties,
+    required,
+    type: "object",
+  };
+}
+
+function createDefaultToolArguments(schema: JsonObjectSchema): ToolFormValues {
+  return Object.fromEntries(
+    Object.entries(schema.properties ?? {}).map(([name, property]) => [
+      name,
+      defaultToolArgumentValue(property),
+    ]),
+  );
+}
+
+function defaultToolArgumentValue(property: JsonSchemaProperty): unknown {
+  if ("default" in property) {
+    return property.default;
+  }
+
+  const type = firstJsonSchemaType(property.type);
+  if (type === "boolean") return false;
+  if (type === "array") return "[]";
+  if (type === "object") return "{}";
+  return "";
+}
+
+function normalizeSubmittedToolArguments(
+  values: ToolFormValues,
+  schema: JsonObjectSchema,
+): ToolFormValues {
+  const required = new Set(schema.required ?? []);
+  const entries = Object.entries(values).filter(([name, value]) => {
+    if (required.has(name)) return true;
+    return (
+      value !== "" && value !== undefined && !(typeof value === "number" && Number.isNaN(value))
+    );
+  });
+
+  return Object.fromEntries(entries);
+}
+
+function toAjvResolverSchema(schema: JsonObjectSchema): JSONSchemaType<ToolFormValues> {
+  return schema as JSONSchemaType<ToolFormValues>;
+}
+
+function firstJsonSchemaType(type: JsonSchemaProperty["type"]): string | undefined {
+  return Array.isArray(type) ? type.find((value) => value !== "null") : type;
+}
+
+function parseJsonFormValue(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  if (!value.trim()) return undefined;
+
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
+
+function fieldErrorMessage(error: unknown): string | undefined {
+  if (!isRecord(error)) return undefined;
+  const message = error.message;
+  return typeof message === "string" ? message : "Invalid value.";
+}
+
+function formatToolCallResult(result: McpCallToolResult): string {
+  const textContent = Array.isArray(result.content)
+    ? result.content
+        .map((content) => (content.type === "text" ? content.text : undefined))
+        .filter((text): text is string => typeof text === "string")
+    : [];
+
+  if (textContent?.length) {
+    return textContent.join("\n");
+  }
+
+  return JSON.stringify(result, null, 2);
+}
+
+function formatSchemaPropertyName(name: string): string {
+  return name
+    .replace(/[_-]+/gu, " ")
+    .replace(/([a-z])([A-Z])/gu, "$1 $2")
+    .replace(/\b\w/gu, (character) => character.toUpperCase());
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function Footer() {

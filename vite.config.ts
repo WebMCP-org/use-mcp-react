@@ -19,6 +19,9 @@ const ignoredGeneratedAndReferenceFiles = [
 
 export default defineConfig({
   plugins: [react(), playgroundMcpTransportProxyPlugin()],
+  resolve: {
+    dedupe: ["react", "react-dom"],
+  },
   staged: {
     "*": "vp check --fix",
   },
@@ -60,7 +63,11 @@ export default defineConfig({
       "@modelcontextprotocol/sdk/server/mcp.js",
       "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js",
       "@modelcontextprotocol/sdk/types.js",
+      "@hookform/resolvers/ajv",
+      "ajv-errors",
+      "ajv-formats",
       "react-dom/client",
+      "react-hook-form",
     ],
   },
 });

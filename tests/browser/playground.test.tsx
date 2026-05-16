@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { page } from "vitest/browser";
 import { render } from "vitest-browser-react";
+import { z } from "zod/v4";
 import { App } from "../../playground/src/main.tsx";
 import { MCP_OAUTH_CALLBACK_CHANNEL } from "../../src/index.ts";
 import { worker } from "./setup.js";
@@ -153,6 +154,73 @@ describe("playground", () => {
       .element(page.getByRole("region", { name: "Connection proof of life" }))
       .toBeVisible();
     expect(document.querySelector(".catalog-column")?.textContent).toContain("whoami");
+  });
+
+  it("renders a JSON Schema tool form and submits the call", async () => {
+    const server = createOAuthMcpTestServer({
+      requireAuth: false,
+      transportMode: "stateless",
+    });
+    server.registerTool("create-ticket", {
+      inputSchema: {
+        notify: z.boolean().optional(),
+        priority: z.number().int().min(1),
+        title: z.string(),
+      },
+      responseText: (args) => JSON.stringify(args),
+    });
+    worker.use(...server.handlers);
+
+    await render(<App />);
+
+    await page.getByLabelText("MCP URL").fill(server.mcpUrl);
+    await page.getByRole("button", { exact: true, name: "Connect" }).click();
+
+    await waitForProofStatus("Ready");
+
+    await page.getByLabelText("Tool", { exact: true }).selectOptions("create-ticket");
+    await page.getByLabelText("Title").fill("Ship form calls");
+    await page.getByLabelText("Priority").fill("2");
+    await page.getByLabelText("Notify").click();
+    await page.getByRole("button", { name: "Call tool" }).click();
+
+    await vi.waitFor(() => {
+      expect(document.querySelector(".tool-call-result")?.textContent).toContain(
+        '"title":"Ship form calls"',
+      );
+    });
+    expect(document.querySelector(".tool-call-result")?.textContent).toContain('"priority":2');
+    expect(document.querySelector(".tool-call-result")?.textContent).toContain('"notify":true');
+  });
+
+  it("validates JSON Schema tool arguments before calling the server", async () => {
+    const server = createOAuthMcpTestServer({
+      requireAuth: false,
+      transportMode: "stateless",
+    });
+    server.registerTool("create-ticket", {
+      inputSchema: {
+        priority: z.number().int().min(1),
+        title: z.string(),
+      },
+      responseText: (args) => JSON.stringify(args),
+    });
+    worker.use(...server.handlers);
+
+    await render(<App />);
+
+    await page.getByLabelText("MCP URL").fill(server.mcpUrl);
+    await page.getByRole("button", { exact: true, name: "Connect" }).click();
+
+    await waitForProofStatus("Ready");
+
+    await page.getByLabelText("Tool", { exact: true }).selectOptions("create-ticket");
+    await page.getByRole("button", { name: "Call tool" }).click();
+
+    await vi.waitFor(() => {
+      expect(document.querySelector(".tool-call-form")?.textContent).toContain("must be integer");
+    });
+    expect(toolCallRequestCount(server.requestLog)).toBe(0);
   });
 
   it("renders MCP Apps advertised by a connected remote server", async () => {
@@ -498,6 +566,10 @@ function registerRequestCount(requestLog: Array<{ method: string; pathname: stri
 function tokenRequestCount(requestLog: Array<{ method: string; pathname: string }>): number {
   return requestLog.filter((entry) => entry.method === "POST" && entry.pathname === "/token")
     .length;
+}
+
+function toolCallRequestCount(requestLog: Array<{ jsonRpcMethod?: string }>): number {
+  return requestLog.filter((entry) => entry.jsonRpcMethod === "tools/call").length;
 }
 
 function createPreRegisteredClient(clientId: string) {
