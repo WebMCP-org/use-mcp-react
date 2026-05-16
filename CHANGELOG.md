@@ -1,5 +1,11 @@
 # use-mcp-react
 
+## 0.4.0
+
+### Minor Changes
+
+- 1c81562: Add the optional `use-mcp-react/apps` subpath with MCP Apps capability advertisement, authorized `ui://` resource loading, iframe host rendering, and upstream app bridge lifecycle handling.
+
 ## 0.3.0
 
 ### Minor Changes
