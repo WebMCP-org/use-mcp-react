@@ -1,5 +1,11 @@
 # use-mcp-react
 
+## 0.3.0
+
+### Minor Changes
+
+- 23cc7d8: Add SDK client capability/options pass-through, live catalog refresh for list-changed notifications, and structured operation wrappers for tools, resources, prompts, and completions.
+
 ## 0.2.0
 
 ### Minor Changes
