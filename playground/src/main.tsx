@@ -80,6 +80,15 @@ const defaultRedirectUrl = `${window.location.origin}/oauth/callback`;
 const presets: Preset[] = [
   {
     authMode: "auto",
+    id: "excalidraw-app",
+    name: "Excalidraw",
+    proxyNote:
+      "Excalidraw is a hosted no-auth MCP Apps server. It advertises create_view with ui://excalidraw/mcp-app.html so the playground can render the upstream whiteboard app.",
+    tag: "MCP App",
+    url: "https://mcp.excalidraw.com",
+  },
+  {
+    authMode: "auto",
     id: "postman-code",
     name: "Postman",
     proxyNote:

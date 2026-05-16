@@ -459,7 +459,7 @@ Or run it locally:
 vp run playground
 ```
 
-The playground includes presets for unauthenticated, OAuth, bearer-token, and manual-client scenarios, including Postman's hosted remote MCP endpoint. Remote presets use an app-owned transport proxy for MCP transport requests; OAuth remains browser-owned.
+The playground includes presets for unauthenticated, OAuth, bearer-token, manual-client, and MCP Apps scenarios, including Excalidraw's hosted MCP App endpoint and Postman's hosted remote MCP endpoint. Remote presets use an app-owned transport proxy for MCP transport requests; OAuth remains browser-owned.
 
 The deployed playground ships its React SPA and `/api/mcp-proxy` backend together. The proxy exists for servers such as Stripe whose MCP transport endpoint does not expose browser CORS. See [`playground/worker/index.ts`](https://github.com/WebMCP-org/use-mcp-react/blob/main/playground/worker/index.ts) and [transport proxy mode](https://github.com/WebMCP-org/use-mcp-react/blob/main/docs/reference/transport-proxy-mode.md).
 

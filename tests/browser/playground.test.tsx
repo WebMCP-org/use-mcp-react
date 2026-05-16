@@ -8,6 +8,16 @@ import { worker } from "./setup.js";
 import { createOAuthMcpTestServer } from "./support/oauthMcpServer.js";
 
 describe("playground", () => {
+  it("offers Excalidraw as the hosted MCP Apps preset", async () => {
+    await render(<App />);
+
+    await page.getByRole("button", { name: /Excalidraw/ }).click();
+
+    await expect.element(page.getByLabelText("MCP URL")).toHaveValue("https://mcp.excalidraw.com");
+    expect(document.body.textContent).toContain("Excalidraw is a hosted no-auth MCP Apps server.");
+    expect(document.body.textContent).toContain("ui://excalidraw/mcp-app.html");
+  });
+
   it("offers Postman as the hosted remote OAuth preset", async () => {
     await render(<App />);
 
