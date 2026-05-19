@@ -1,5 +1,11 @@
 # use-mcp-react
 
+## 0.4.1
+
+### Patch Changes
+
+- Allow `transportProxy` to point at absolute cross-origin gateway URLs for browser-hosted MCP transport proxies.
+
 ## 0.4.0
 
 ### Minor Changes

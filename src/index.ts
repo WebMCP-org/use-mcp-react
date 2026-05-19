@@ -2070,10 +2070,6 @@ function normalizeTransportProxyUrl(transportProxy: UseMcpTransportProxy | undef
     throw new Error(`Invalid transportProxy URL: ${value}`);
   }
 
-  if (url.origin !== new URL(baseUrl).origin) {
-    throw new Error("transportProxy must be same-origin.");
-  }
-
   return url;
 }
 

@@ -79,6 +79,7 @@ type OAuthMcpTestServerOptions = {
   paginatedTools?: boolean;
   preRegisteredClients?: OAuthClientInformationFull[];
   protectedResource?: string;
+  proxyUrl?: string;
   randomResponseDelay?: {
     maxMs: number;
     seed: number;
@@ -125,7 +126,8 @@ export function createOAuthMcpTestServer(
   const mcpPath = options.mcpPath ?? "/mcp";
   const authorizationServerPath = normalizeOptionalPath(options.authorizationServerPath);
   const mcpUrl = `${origin}${mcpPath}`;
-  const proxyUrl = `${origin}${mcpPath === "/mcp" ? "/mcp-proxy" : `${mcpPath}-proxy`}`;
+  const proxyUrl =
+    options.proxyUrl ?? `${origin}${mcpPath === "/mcp" ? "/mcp-proxy" : `${mcpPath}-proxy`}`;
   const protectedResource = options.protectedResource ?? mcpUrl;
   const acceptedTokenResource = new URL(protectedResource).href;
   const authorizationServerUrl = `${origin}${authorizationServerPath}`;

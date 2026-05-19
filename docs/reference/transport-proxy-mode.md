@@ -26,11 +26,11 @@ That same Worker also serves the playground Client ID Metadata Document at `/.we
 ```tsx
 const mcp = useMcp({
   url: userEnteredMcpUrl,
-  transportProxy: "/api/mcp-proxy",
+  transportProxy: "https://proxy.example.com/mcp-proxy",
 });
 ```
 
-The proxy URL is app-owned configuration. End users should enter MCP server URLs, not proxy URLs.
+The proxy URL is app-owned configuration. It may be a same-origin route or an absolute cross-origin URL when that proxy exposes browser CORS for your app. End users should enter MCP server URLs, not proxy URLs.
 
 `url` is still the logical upstream MCP URL. Do not replace it with the proxy URL. OAuth Resource Indicator validation and token audience checks need the real MCP protected resource, not your app's proxy route.
 
@@ -39,7 +39,7 @@ The proxy URL is app-owned configuration. End users should enter MCP server URLs
 The hook rewrites only requests whose URL exactly matches the logical MCP endpoint, ignoring the URL hash. OAuth metadata, registration, token, and refresh requests stay direct.
 
 ```txt
-POST /api/mcp-proxy
+POST https://proxy.example.com/mcp-proxy
 x-mcp-target-url: https://mcp.stripe.com
 authorization: Bearer ...
 content-type: application/json
@@ -51,7 +51,7 @@ The playground proxy forwards whatever request the hook sends to the configured 
 
 ## Loose Demo Proxy
 
-The playground Worker is intentionally small. It is not trying to teach a complete proxy security model; it gives browser apps a same-origin route when an MCP server does not expose browser CORS.
+The playground Worker is intentionally small. It is not trying to teach a complete proxy security model; it gives browser apps a route when an MCP server does not expose browser CORS.
 
 This is the shape:
 

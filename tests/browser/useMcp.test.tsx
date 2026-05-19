@@ -4124,7 +4124,7 @@ describe("useMcp", () => {
     await probe.unmount();
   });
 
-  it("rejects cross-origin transport proxies before sending bearer credentials", async () => {
+  it("allows cross-origin transport proxies for browser-hosted gateways", async () => {
     const server = createOAuthMcpTestServer({
       acceptedBearerTokens: [
         {
@@ -4135,6 +4135,7 @@ describe("useMcp", () => {
         },
       ],
       advertiseOAuth: false,
+      proxyUrl: "https://proxy.example/mcp-proxy",
       transportMode: "stateless",
     });
     worker.use(...server.handlers);
@@ -4143,7 +4144,7 @@ describe("useMcp", () => {
       () =>
         useMcp({
           bearerToken: "secret-token",
-          transportProxy: "https://proxy.example/mcp",
+          transportProxy: server.proxyUrl,
           url: server.mcpUrl,
         }),
       (mcp) => ({
@@ -4153,12 +4154,28 @@ describe("useMcp", () => {
     );
 
     await vi.waitFor(() => {
-      expect(probe.result.current.status).toBe("failed");
+      expect(probe.result.current.status).toBe("ready");
     });
 
-    expect(probe.result.current.error?.message).toContain("transportProxy must be same-origin");
-    expect(server.requestLog).toEqual([]);
+    expect(probe.result.current.tools.map((tool) => tool.name)).toContain("whoami");
+    expect(server.requestLog).toContainEqual(
+      expect.objectContaining({
+        authorization: "Bearer secret-token",
+        cookie: null,
+        jsonRpcMethod: "initialize",
+        method: "POST",
+        pathname: "/mcp-proxy",
+        proxyTargetUrl: server.mcpUrl,
+        status: 200,
+      }),
+    );
+    expect(server.requestLog).not.toContainEqual(
+      expect.objectContaining({
+        pathname: "/mcp",
+      }),
+    );
 
+    await probe.result.current.client?.close();
     await probe.unmount();
   });
 

@@ -256,12 +256,12 @@ Use transport proxy mode when only the MCP transport endpoint needs server-side 
 
 ```tsx
 const mcp = useMcp({
-  transportProxy: "/api/mcp-proxy",
+  transportProxy: "https://proxy.example.com/mcp-proxy",
   url: userEnteredMcpUrl,
 });
 ```
 
-Keep `url` pointed at the upstream MCP server. OAuth discovery, registration, token exchange, token refresh, and callback handling stay in the browser. Only MCP transport requests are sent to the proxy, with `x-mcp-target-url` identifying the upstream target.
+Keep `url` pointed at the upstream MCP server. OAuth discovery, registration, token exchange, token refresh, and callback handling stay in the browser. Only MCP transport requests are sent to the proxy, with `x-mcp-target-url` identifying the upstream target. `transportProxy` may be same-origin or an absolute cross-origin URL when that proxy exposes browser CORS for your app.
 
 If the proxy accepts runtime targets, enforce an allowlist or equivalent policy on the server. The playground demonstrates this with a proxy server route at [`playground/worker/index.ts`](https://github.com/WebMCP-org/use-mcp-react/blob/main/playground/worker/index.ts). See [transport proxy mode](https://github.com/WebMCP-org/use-mcp-react/blob/main/docs/reference/transport-proxy-mode.md) for the setup contract and security checklist.
 
