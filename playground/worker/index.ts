@@ -1,4 +1,4 @@
-import { playgroundMcpProxyPath } from "../src/mcpProxyPolicy.ts";
+import { isBlockedMcpHostname, playgroundMcpProxyPath } from "../src/mcpProxyPolicy.ts";
 
 const clientMetadataDocumentPath = "/.well-known/oauth-client-metadata.json";
 
@@ -46,9 +46,11 @@ async function handleProxyRequest(request: Request): Promise<Response> {
       return textResponse(400, "Missing or invalid x-mcp-target-url");
     }
 
+    const headers = new Headers(request.headers);
+    headers.delete("x-mcp-target-url");
     const upstreamResponse = await fetch(target, {
-      body: request.body,
-      headers: request.headers,
+      ...(request.method === "GET" || request.method === "HEAD" ? {} : { body: request.body }),
+      headers,
       method: request.method,
       redirect: "manual",
       signal: AbortSignal.timeout(30_000),
@@ -68,6 +70,14 @@ function normalizeProxyTarget(target: string | null): URL | null {
   try {
     const url = new URL(target);
     url.hash = "";
+    if (
+      url.protocol !== "https:" ||
+      url.username ||
+      url.password ||
+      isBlockedMcpHostname(url.hostname)
+    ) {
+      return null;
+    }
 
     return url;
   } catch {

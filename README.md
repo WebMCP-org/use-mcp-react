@@ -252,7 +252,7 @@ const mcp = useMcp({
 
 ### Transport Proxy Mode
 
-Use transport proxy mode when only the MCP transport endpoint needs server-side forwarding:
+Use transport proxy mode when MCP or MCP OAuth background HTTP needs server-side forwarding:
 
 ```tsx
 const mcp = useMcp({
@@ -261,9 +261,9 @@ const mcp = useMcp({
 });
 ```
 
-Keep `url` pointed at the upstream MCP server. OAuth discovery, registration, token exchange, token refresh, and callback handling stay in the browser. Only MCP transport requests are sent to the proxy, with `x-mcp-target-url` identifying the upstream target. `transportProxy` may be same-origin or an absolute cross-origin URL when that proxy exposes browser CORS for your app.
+Keep `url` pointed at the upstream MCP server. MCP transport requests, OAuth discovery, Dynamic Client Registration, token exchange, and token refresh are sent to the proxy with `x-mcp-target-url` identifying the upstream target. The authorization popup still opens the real provider authorization URL directly. `transportProxy` may be same-origin or an absolute cross-origin URL when that proxy exposes browser CORS for your app.
 
-If the proxy accepts runtime targets, enforce an allowlist or equivalent policy on the server. The playground demonstrates this with a proxy server route at [`playground/worker/index.ts`](https://github.com/WebMCP-org/use-mcp-react/blob/main/playground/worker/index.ts). See [transport proxy mode](https://github.com/WebMCP-org/use-mcp-react/blob/main/docs/reference/transport-proxy-mode.md) for the setup contract and security checklist.
+If the proxy accepts runtime targets, enforce a server-side target policy: require HTTPS in production, reject embedded credentials, and block loopback, private, and link-local addresses to avoid SSRF. The playground demonstrates this with a proxy server route at [`playground/worker/index.ts`](https://github.com/WebMCP-org/use-mcp-react/blob/main/playground/worker/index.ts). See [transport proxy mode](https://github.com/WebMCP-org/use-mcp-react/blob/main/docs/reference/transport-proxy-mode.md) for the setup contract and security checklist.
 
 ### Backend Gateway Mode
 
@@ -459,9 +459,9 @@ Or run it locally:
 vp run playground
 ```
 
-The playground includes presets for unauthenticated, OAuth, bearer-token, manual-client, and MCP Apps scenarios, including Excalidraw's hosted MCP App endpoint and Postman's hosted remote MCP endpoint. Remote presets use an app-owned transport proxy for MCP transport requests; OAuth remains browser-owned.
+The playground includes presets for unauthenticated, OAuth, bearer-token, manual-client, and MCP Apps scenarios, including Excalidraw's hosted MCP App endpoint and Postman's hosted remote MCP endpoint. Remote presets use an app-owned transport proxy for MCP transport and OAuth background HTTP; OAuth state remains browser-owned.
 
-The deployed playground ships its React SPA and `/api/mcp-proxy` backend together. The proxy exists for servers such as Stripe whose MCP transport endpoint does not expose browser CORS. See [`playground/worker/index.ts`](https://github.com/WebMCP-org/use-mcp-react/blob/main/playground/worker/index.ts) and [transport proxy mode](https://github.com/WebMCP-org/use-mcp-react/blob/main/docs/reference/transport-proxy-mode.md).
+The deployed playground ships its React SPA and `/api/mcp-proxy` backend together. The proxy exists for servers whose MCP transport or OAuth background HTTP endpoints do not expose browser CORS. See [`playground/worker/index.ts`](https://github.com/WebMCP-org/use-mcp-react/blob/main/playground/worker/index.ts) and [transport proxy mode](https://github.com/WebMCP-org/use-mcp-react/blob/main/docs/reference/transport-proxy-mode.md).
 
 It also serves a Client ID Metadata Document at `/.well-known/oauth-client-metadata.json`. The document includes `client_id` equal to that full URL, which authorization servers require when they validate URL-based client ids. Use the playground CIMD toggle to pass that URL as `oauth.clientMetadataUrl` and demonstrate URL-based public OAuth client ids.
 
