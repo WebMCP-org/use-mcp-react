@@ -97,6 +97,42 @@ const presets: Preset[] = [
     url: "https://mcp.postman.com/code",
   },
   {
+    authMode: "bearer",
+    id: "posthog-bearer",
+    name: "PostHog",
+    proxyNote:
+      "PostHog is a hosted MCP server that accepts a project-scoped API key as a bearer token. The playground proxy forwards the authenticated MCP transport request server-side.",
+    tag: "Bearer",
+    url: "https://mcp.posthog.com/mcp",
+  },
+  {
+    authMode: "auto",
+    id: "webflow",
+    name: "Webflow",
+    proxyNote:
+      "Webflow runs a hosted OAuth MCP server. The authorization popup opens Webflow directly while MCP and OAuth background HTTP use the playground proxy route.",
+    tag: "OAuth",
+    url: "https://mcp.webflow.com/mcp",
+  },
+  {
+    authMode: "auto",
+    id: "notion",
+    name: "Notion",
+    proxyNote:
+      "Notion's hosted MCP server uses user-based OAuth. The playground keeps the authorization flow direct and forwards hook-owned background HTTP through the proxy route.",
+    tag: "OAuth",
+    url: "https://mcp.notion.com/mcp",
+  },
+  {
+    authMode: "auto",
+    id: "atlassian-rovo",
+    name: "Atlassian",
+    proxyNote:
+      "Atlassian Rovo MCP uses OAuth 2.1 for Jira, Confluence, and Compass access. Workspace admins may need to allow the playground origin before authorization succeeds.",
+    tag: "OAuth",
+    url: "https://mcp.atlassian.com/v1/mcp/authv2",
+  },
+  {
     authMode: "auto",
     id: "deepwiki",
     name: "DeepWiki",
@@ -1568,7 +1604,8 @@ function Footer() {
   return (
     <footer className="page-footer">
       <p>
-        Remote presets use the proxy server route for MCP transport; OAuth stays in the browser.{" "}
+        Remote presets use the proxy server route for MCP transport and OAuth background HTTP;
+        authorization still opens the provider directly.{" "}
         <a href={workerSourceUrl} rel="noreferrer" target="_blank">
           View the code
         </a>

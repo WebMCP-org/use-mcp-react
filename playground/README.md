@@ -26,15 +26,19 @@ The deployed playground ships that proxy server route next to the React SPA. Thi
 
 The playground also serves a Client ID Metadata Document at `/.well-known/oauth-client-metadata.json`. The document includes `client_id` equal to that full metadata URL, which authorization servers require when they validate URL-based client ids. Turn the CIMD toggle on to pass that URL as `oauth.clientMetadataUrl`, so authorization servers that advertise Client ID Metadata Document support can use the document URL as the public OAuth client id instead of dynamic registration. Turn it off to compare the fallback registration behavior.
 
-| Preset               | URL                                | Expected verdict                                                                      |
-| -------------------- | ---------------------------------- | ------------------------------------------------------------------------------------- |
-| Excalidraw           | `https://mcp.excalidraw.com/mcp`   | `authRequirement = null`; advertises `create_view` as an MCP Apps UI resource         |
-| Postman              | `https://mcp.postman.com/code`     | `type: "oauth"` through `/api/mcp-proxy`; supports OAuth metadata, DCR, and PKCE      |
-| DeepWiki             | `https://mcp.deepwiki.com/mcp`     | `authRequirement = null` through `/api/mcp-proxy`                                     |
-| Linear               | `https://mcp.linear.app/mcp`       | `type: "oauth"` through `/api/mcp-proxy`; toggle CIMD on to use the metadata document |
-| Firecrawl            | `https://mcp.firecrawl.dev/v2/mcp` | `type: "bearer"` through `/api/mcp-proxy`                                             |
-| Stripe               | `https://mcp.stripe.com`           | `type: "oauth"` through `/api/mcp-proxy`                                              |
-| Gmail MCP (template) | `http://localhost:3000/mcp`        | Auto-detects first, then `type: "manual_oauth_client"` if registration is unavailable |
+| Preset               | URL                                       | Expected verdict                                                                      |
+| -------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------- |
+| Excalidraw           | `https://mcp.excalidraw.com/mcp`          | `authRequirement = null`; advertises `create_view` as an MCP Apps UI resource         |
+| Postman              | `https://mcp.postman.com/code`            | `type: "oauth"` through `/api/mcp-proxy`; supports OAuth metadata, DCR, and PKCE      |
+| PostHog              | `https://mcp.posthog.com/mcp`             | `type: "bearer"` through `/api/mcp-proxy`; paste a project-scoped API key             |
+| Webflow              | `https://mcp.webflow.com/mcp`             | `type: "oauth"` through `/api/mcp-proxy`; uses Webflow-hosted OAuth                   |
+| Notion               | `https://mcp.notion.com/mcp`              | `type: "oauth"` through `/api/mcp-proxy`; uses user-based OAuth                       |
+| Atlassian            | `https://mcp.atlassian.com/v1/mcp/authv2` | `type: "oauth"` through `/api/mcp-proxy`; may require org admin approval              |
+| DeepWiki             | `https://mcp.deepwiki.com/mcp`            | `authRequirement = null` through `/api/mcp-proxy`                                     |
+| Linear               | `https://mcp.linear.app/mcp`              | `type: "oauth"` through `/api/mcp-proxy`; toggle CIMD on to use the metadata document |
+| Firecrawl            | `https://mcp.firecrawl.dev/v2/mcp`        | `type: "bearer"` through `/api/mcp-proxy`                                             |
+| Stripe               | `https://mcp.stripe.com`                  | `type: "oauth"` through `/api/mcp-proxy`                                              |
+| Gmail MCP (template) | `http://localhost:3000/mcp`               | Auto-detects first, then `type: "manual_oauth_client"` if registration is unavailable |
 
 The OAuth callback handler is mounted at `/oauth/callback`.
 
@@ -63,6 +67,10 @@ Run the same shape locally with `vp run playground`; deploy it with `vp run use-
 - DeepWiki MCP: https://mcp.deepwiki.com/mcp
 - Excalidraw MCP App: https://mcpapp-store.com/apps/excalidraw-mcp
 - Postman MCP: https://learning.postman.com/docs/developer/postman-api/postman-mcp-server/postman-mcp-remote-server/
+- PostHog MCP: https://posthog.com/docs/model-context-protocol
+- Webflow MCP: https://developers.webflow.com/mcp/reference/getting-started
+- Notion MCP: https://developers.notion.com/guides/mcp/get-started-with-mcp
+- Atlassian Rovo MCP: https://support.atlassian.com/atlassian-rovo-mcp-server/docs/getting-started-with-the-atlassian-remote-mcp-server/
 - Official MCP example remote server: https://github.com/modelcontextprotocol/example-remote-server
 - Linear MCP: https://linear.app/docs/mcp
 - Stripe MCP: https://docs.stripe.com/mcp
