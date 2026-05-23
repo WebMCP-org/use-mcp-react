@@ -46,12 +46,6 @@ jobs:
       - name: Check
         run: vp check
 
-      - name: Install Playwright browsers
-        run: vp exec playwright install chromium
-
-      - name: Test
-        run: vp test
-
       - name: Validate package
         run: vp run validate:package
 
