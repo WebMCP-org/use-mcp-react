@@ -2523,10 +2523,13 @@ function isMcpTransportSseProbe(method: string | undefined): boolean {
 
 function createProxyInit(init: RequestInit | undefined, targetUrl: URL): RequestInit {
   const headers = new Headers(init?.headers);
+  headers.set("cache-control", "no-store");
+  headers.set("pragma", "no-cache");
   headers.set("x-mcp-target-url", proxyTargetUrl(targetUrl).toString());
 
   return {
     ...init,
+    cache: "no-store",
     credentials: "omit",
     headers,
   };

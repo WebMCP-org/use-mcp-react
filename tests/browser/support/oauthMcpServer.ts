@@ -43,6 +43,8 @@ type DynamicToolOptions = {
 type RequestLogEntry = {
   accept?: string | null;
   authorization?: string | null;
+  cache?: RequestCache;
+  cacheControl?: string | null;
   contentType?: string | null;
   cookie?: string | null;
   grantType?: string;
@@ -335,6 +337,8 @@ export function createOAuthMcpTestServer(
     const entry: RequestLogEntry = {
       accept: request.headers.get("accept"),
       authorization: request.headers.get("authorization"),
+      cache: request.cache,
+      cacheControl: request.headers.get("cache-control"),
       cookie: request.headers.get("cookie"),
       mcpProtocolVersion: request.headers.get("mcp-protocol-version"),
       method: request.method,

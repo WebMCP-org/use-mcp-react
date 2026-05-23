@@ -56,7 +56,11 @@ async function handleProxyRequest(request: Request): Promise<Response> {
       signal: AbortSignal.timeout(30_000),
     });
 
-    return new Response(upstreamResponse.body, upstreamResponse);
+    const response = new Response(upstreamResponse.body, upstreamResponse);
+    response.headers.set("cache-control", "no-store");
+    appendVaryHeader(response.headers, "x-mcp-target-url");
+
+    return response;
   } catch (cause) {
     return textResponse(502, cause instanceof Error ? cause.message : "MCP proxy request failed");
   }
@@ -90,4 +94,21 @@ function textResponse(status: number, body: string): Response {
     headers: { "content-type": "text/plain; charset=utf-8" },
     status,
   });
+}
+
+function appendVaryHeader(headers: Headers, value: string): void {
+  const existing = headers.get("vary");
+  if (!existing) {
+    headers.set("vary", value);
+    return;
+  }
+
+  if (existing === "*") {
+    return;
+  }
+
+  const existingValues = existing.split(",").map((item) => item.trim().toLowerCase());
+  if (!existingValues.includes(value.toLowerCase())) {
+    headers.set("vary", `${existing}, ${value}`);
+  }
 }

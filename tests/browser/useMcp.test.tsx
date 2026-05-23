@@ -2613,6 +2613,7 @@ describe("useMcp", () => {
     );
     expect(server.requestLog).toContainEqual(
       expect.objectContaining({
+        cacheControl: "no-store",
         method: "GET",
         pathname: "/mcp-proxy",
         proxyTargetUrl: `${window.location.origin}/.well-known/oauth-protected-resource/mcp`,
@@ -2620,6 +2621,7 @@ describe("useMcp", () => {
     );
     expect(server.requestLog).toContainEqual(
       expect.objectContaining({
+        cacheControl: "no-store",
         method: "GET",
         pathname: "/mcp-proxy",
         proxyTargetUrl: server.authorizationServerMetadataUrl,
