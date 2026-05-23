@@ -47,7 +47,7 @@ jobs:
         run: vp check
 
       - name: Install Playwright browsers
-        run: vp exec playwright install --with-deps chromium
+        run: vp exec playwright install chromium
 
       - name: Test
         run: vp test

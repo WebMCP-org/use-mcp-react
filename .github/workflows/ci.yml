@@ -48,7 +48,7 @@ jobs:
         run: vp run fallow:audit
 
       - name: Install Playwright browsers
-        run: vp exec playwright install --with-deps chromium
+        run: vp exec playwright install chromium
 
       - name: Test
         run: vp test
