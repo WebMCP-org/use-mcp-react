@@ -5,6 +5,7 @@
 ### Patch Changes
 
 - Route hook-owned MCP OAuth discovery, dynamic registration, token exchange, and refresh requests through `transportProxy` while keeping authorization navigation direct.
+- Allow hook-owned OAuth popups to close shortly before callback delivery without reporting a false cancellation.
 - Prevent proxied OAuth metadata responses from being reused across different `x-mcp-target-url` upstreams.
 - Recover from stale persisted OAuth discovery state that points at a `.well-known` metadata endpoint instead of an authorization server.
 - Update the `ws` dependency lockfile entry from 8.18.0 to 8.20.1.
