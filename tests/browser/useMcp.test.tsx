@@ -3463,6 +3463,88 @@ describe("useMcp", () => {
     await probe.unmount();
   });
 
+  it("accepts a callback that arrives shortly after the hook-owned popup closes", async () => {
+    const server = createOAuthMcpTestServer({
+      transportMode: "stateless",
+    });
+    worker.use(...server.handlers);
+
+    let popupClosed = false;
+    let popupHref = "about:blank";
+    const popup = {
+      get closed() {
+        return popupClosed;
+      },
+      close: () => {
+        popupClosed = true;
+      },
+      focus: () => {},
+      location: {
+        get href() {
+          return popupHref;
+        },
+        set href(value: string) {
+          popupHref = value;
+        },
+      },
+    } as Window;
+    const originalOpen = window.open;
+    window.open = ((url?: string | URL) => {
+      popupHref = String(url ?? "about:blank");
+      return popup;
+    }) as typeof window.open;
+
+    const probe = await renderHookProbe(
+      () => useMcp({ url: server.mcpUrl }),
+      (mcp) => ({
+        errorMessage: mcp.error?.message,
+        status: mcp.status,
+        toolNames: mcp.tools.map((tool) => tool.name),
+      }),
+    );
+
+    try {
+      await vi.waitFor(() => {
+        expect(probe.result.current.status).toBe("pending_auth");
+      });
+
+      await probe.act(() => probe.result.current.authorize({ target: "popup" }));
+
+      const authorizationUrl = new URL(popup.location.href);
+      const code = server.authorize(authorizationUrl);
+      popupClosed = true;
+
+      await new Promise<void>((resolve) => {
+        window.setTimeout(resolve, 650);
+      });
+
+      const channel = new BroadcastChannel(MCP_OAUTH_CALLBACK_CHANNEL);
+      channel.postMessage({
+        code,
+        state: authorizationUrl.searchParams.get("state"),
+        type: "use-mcp-react:oauth-callback",
+      });
+      channel.close();
+
+      await vi.waitFor(() => {
+        expect(probe.result.current.status).toBe("ready");
+      });
+
+      expect(probe.result.current.error).toBeNull();
+      expect(probe.result.current.tools.map((tool) => tool.name)).toContain("whoami");
+      expect(probe.snapshots()).not.toContainEqual(
+        expect.objectContaining({
+          errorMessage: "OAuth authorization popup closed before the callback was received.",
+          status: "failed",
+        }),
+      );
+    } finally {
+      window.open = originalOpen;
+      await probe.result.current.client?.close();
+      await probe.unmount();
+    }
+  });
+
   it("recovers from a Linear-style invalid approval callback without rotating the OAuth client", async () => {
     const server = createOAuthMcpTestServer({
       clientMetadataDocument: true,

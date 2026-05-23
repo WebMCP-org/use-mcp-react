@@ -650,6 +650,7 @@ const RECONNECT_STATUS_PAINT_DELAY_MS = 80;
 const AUTHENTICATING_STATUS_PAINT_DELAY_MS = 80;
 const DEFAULT_OAUTH_AUTHORIZATION_TIMEOUT_MS = 5 * 60 * 1_000;
 const OAUTH_POPUP_CLOSED_POLL_INTERVAL_MS = 500;
+const OAUTH_POPUP_CLOSED_CALLBACK_GRACE_PERIOD_MS = 1_500;
 const MCP_CLIENT_VERSION = packageJson.version;
 
 type Connection = {
@@ -866,6 +867,7 @@ export function useMcp(options: UseMcpOptions): UseMcpResult {
   const popupWindowNameRef = useRef<string | null>(null);
   const oauthAuthorizationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const oauthPopupClosedIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const oauthPopupClosedGraceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stateRef = useRef(state);
 
   optionsRef.current = options;
@@ -894,6 +896,10 @@ export function useMcp(options: UseMcpOptions): UseMcpResult {
     if (oauthPopupClosedIntervalRef.current) {
       clearInterval(oauthPopupClosedIntervalRef.current);
       oauthPopupClosedIntervalRef.current = null;
+    }
+    if (oauthPopupClosedGraceTimeoutRef.current) {
+      clearTimeout(oauthPopupClosedGraceTimeoutRef.current);
+      oauthPopupClosedGraceTimeoutRef.current = null;
     }
   }, []);
 
@@ -1379,10 +1385,25 @@ export function useMcp(options: UseMcpOptions): UseMcpResult {
             return;
           }
 
-          void failPendingOAuthConnection(
-            pendingOAuthConnection,
-            new Error("OAuth authorization popup closed before the callback was received."),
-          );
+          if (oauthPopupClosedIntervalRef.current) {
+            clearInterval(oauthPopupClosedIntervalRef.current);
+            oauthPopupClosedIntervalRef.current = null;
+          }
+          if (oauthPopupClosedGraceTimeoutRef.current) {
+            return;
+          }
+
+          oauthPopupClosedGraceTimeoutRef.current = setTimeout(() => {
+            oauthPopupClosedGraceTimeoutRef.current = null;
+            if (pendingOAuthFinishPromiseRef.current) {
+              return;
+            }
+
+            void failPendingOAuthConnection(
+              pendingOAuthConnection,
+              new Error("OAuth authorization popup closed before the callback was received."),
+            );
+          }, OAUTH_POPUP_CLOSED_CALLBACK_GRACE_PERIOD_MS);
         },
         Math.min(OAUTH_POPUP_CLOSED_POLL_INTERVAL_MS, timeoutMs),
       );
