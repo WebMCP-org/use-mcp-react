@@ -11,7 +11,7 @@ The playground is a single-screen live demo of the library's actual pitch: paste
 ## What the demo shows
 
 1. **URL bar + preset pills.** Paste a URL or pick a preset.
-2. **Transport proxy toggle.** Compare the proxy server route with direct browser transport. Turning it off is useful for demonstrating CORS failures on servers such as Stripe.
+2. **Transport proxy toggle.** Compare the proxy server route with direct browser MCP/OAuth HTTP. Turning it off is useful for demonstrating CORS failures on servers such as Stripe or Airtable.
 3. **Client ID Metadata Document toggle.** Publish or withhold `/.well-known/oauth-client-metadata.json` so you can compare CIMD with the server's default registration path.
 4. **Discovery timeline.** Each phase of the hook's probing lights up as it happens: endpoint reach → no-auth probe → resource metadata → authorization server → registration strategy.
 5. **Inference verdict, "Render this" UI, and the React code branch.** Three equal-weight cards. The middle card is a live, working input form — clicking the OAuth button or submitting the bearer/client-id form actually drives the connection.
@@ -20,10 +20,9 @@ The playground is a single-screen live demo of the library's actual pitch: paste
 
 ## Bundled presets
 
-Remote presets use the app-owned transport proxy at `/api/mcp-proxy` for MCP transport requests.
-OAuth discovery, DCR, token exchange, and token refresh still run directly in the browser.
+Remote presets use the app-owned transport proxy at `/api/mcp-proxy` for MCP transport requests plus OAuth discovery, DCR, token exchange, and token refresh.
 
-The deployed playground ships that proxy server route next to the React SPA. This is the pattern to copy when a server's MCP transport endpoint does not expose browser CORS. Stripe is the clearest preset: OAuth still happens in the browser, but Stripe's MCP transport POSTs go through `/api/mcp-proxy`.
+The deployed playground ships that proxy server route next to the React SPA. This is the pattern to copy when a server's MCP or OAuth endpoints do not expose browser CORS. OAuth state, PKCE, token storage, and the authorization popup stay in the browser, while background HTTP goes through `/api/mcp-proxy`.
 
 The playground also serves a Client ID Metadata Document at `/.well-known/oauth-client-metadata.json`. The document includes `client_id` equal to that full metadata URL, which authorization servers require when they validate URL-based client ids. Turn the CIMD toggle on to pass that URL as `oauth.clientMetadataUrl`, so authorization servers that advertise Client ID Metadata Document support can use the document URL as the public OAuth client id instead of dynamic registration. Turn it off to compare the fallback registration behavior.
 

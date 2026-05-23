@@ -92,7 +92,7 @@ const presets: Preset[] = [
     id: "postman-code",
     name: "Postman",
     proxyNote:
-      "Postman is a hosted remote MCP server with OAuth metadata, DCR, and PKCE. OAuth stays in the browser; MCP transport goes through the playground proxy route.",
+      "Postman is a hosted remote MCP server with OAuth metadata, DCR, and PKCE. Browser-owned MCP and OAuth HTTP go through the playground proxy route.",
     tag: "Remote OAuth",
     url: "https://mcp.postman.com/code",
   },
@@ -110,7 +110,7 @@ const presets: Preset[] = [
     id: "linear-dcr",
     name: "Linear",
     proxyNote:
-      "Linear OAuth stays in the browser; only MCP transport POSTs are forwarded through the proxy server route.",
+      "Linear OAuth state stays in the browser while MCP and OAuth HTTP are forwarded through the proxy server route.",
     tag: "OAuth",
     url: "https://mcp.linear.app/mcp",
   },
@@ -539,8 +539,8 @@ function ProxyToggle({
             Proxy route: <code>{proxyPath}</code>
           </strong>
           <p>
-            {selectedPreset.proxyNote} OAuth discovery, registration, token exchange, and refresh
-            stay in the browser; the proxy server route forwards only MCP transport requests with{" "}
+            {selectedPreset.proxyNote} OAuth state, PKCE, and the authorization popup stay in the
+            browser; the proxy server route forwards hook-owned background HTTP with{" "}
             <code>x-mcp-target-url</code>.
           </p>
           <div className="proxy-links">

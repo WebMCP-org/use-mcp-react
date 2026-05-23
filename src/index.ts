@@ -231,6 +231,14 @@ export type UseMcpOAuthOptions = {
    * the exact same redirect URI.
    */
   redirectUrl?: URL | string;
+  /**
+   * How long a hook-owned popup authorization may wait for the app callback.
+   *
+   * This catches provider-side failures where the authorization server leaves the
+   * user on an error page and never redirects back to `redirectUrl`. Set to `0`
+   * or a negative value to disable the watcher.
+   */
+  authorizationTimeoutMs?: number;
 };
 
 export type UseMcpTransportProxy = URL | string;
@@ -302,14 +310,14 @@ export type UseMcpOptions = {
    */
   storage?: McpStorage | false;
   /**
-   * Same-origin proxy for MCP transport requests.
+   * Same-origin or CORS-enabled proxy for hook-owned MCP HTTP requests.
    *
    * Keep `url` pointed at the upstream MCP server so OAuth Resource Indicator
    * validation remains bound to the real protected resource. When this is set,
-   * only requests to that exact MCP endpoint are sent to the proxy with
-   * `x-mcp-target-url` identifying the upstream target. OAuth discovery,
-   * registration, token exchange, and refresh requests remain browser-owned and
-   * direct.
+   * MCP transport requests plus hook-owned OAuth discovery, registration, token
+   * exchange, and token refresh requests are sent to the proxy with
+   * `x-mcp-target-url` identifying the upstream target. Browser navigation to
+   * the provider authorization URL remains direct.
    */
   transportProxy?: UseMcpTransportProxy;
   /**
@@ -621,6 +629,13 @@ export type McpAuthDiagnostics = {
   authorizationServerMetadataUrl?: string;
   issuer?: string;
   lastError?: Error;
+  /**
+   * Proxy URL used for hook-owned OAuth and MCP transport HTTP, when configured.
+   *
+   * Endpoint-specific fields continue to name the real upstream provider URLs so
+   * debug UIs can distinguish upstream failures from proxy failures.
+   */
+  proxyUrl?: string;
   registrationStrategy?: "client_id" | "client_metadata_url" | "dynamic_client_registration";
   resourceMetadataUrl?: string;
   scopes?: string[];
@@ -633,6 +648,8 @@ const EMPTY_PROMPTS: Prompt[] = [];
 const MAX_CATALOG_PAGES = 25;
 const RECONNECT_STATUS_PAINT_DELAY_MS = 80;
 const AUTHENTICATING_STATUS_PAINT_DELAY_MS = 80;
+const DEFAULT_OAUTH_AUTHORIZATION_TIMEOUT_MS = 5 * 60 * 1_000;
+const OAUTH_POPUP_CLOSED_POLL_INTERVAL_MS = 500;
 const MCP_CLIENT_VERSION = packageJson.version;
 
 type Connection = {
@@ -847,6 +864,8 @@ export function useMcp(options: UseMcpOptions): UseMcpResult {
   const popupRef = useRef<Window | null>(null);
   const popupOwnedByHookRef = useRef(false);
   const popupWindowNameRef = useRef<string | null>(null);
+  const oauthAuthorizationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const oauthPopupClosedIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const stateRef = useRef(state);
 
   optionsRef.current = options;
@@ -867,7 +886,19 @@ export function useMcp(options: UseMcpOptions): UseMcpResult {
     }
   }, []);
 
+  const clearOAuthAuthorizationWatch = useCallback(() => {
+    if (oauthAuthorizationTimeoutRef.current) {
+      clearTimeout(oauthAuthorizationTimeoutRef.current);
+      oauthAuthorizationTimeoutRef.current = null;
+    }
+    if (oauthPopupClosedIntervalRef.current) {
+      clearInterval(oauthPopupClosedIntervalRef.current);
+      oauthPopupClosedIntervalRef.current = null;
+    }
+  }, []);
+
   const closeHookOwnedPopup = useCallback(() => {
+    clearOAuthAuthorizationWatch();
     const popup = popupRef.current;
     if (
       popup &&
@@ -880,7 +911,7 @@ export function useMcp(options: UseMcpOptions): UseMcpResult {
     popupRef.current = null;
     popupOwnedByHookRef.current = false;
     popupWindowNameRef.current = null;
-  }, []);
+  }, [clearOAuthAuthorizationWatch]);
 
   const oauthPopupWindowName = useCallback(() => {
     popupWindowNameRef.current ??= createOAuthPopupWindowName();
@@ -946,17 +977,18 @@ export function useMcp(options: UseMcpOptions): UseMcpResult {
       const authProvider = connectionOptions.bearerToken
         ? createStaticBearerAuthProvider(connectionOptions.bearerToken)
         : oauthProvider;
+      const hookFetch = createAuthenticationChallengeCapturingFetch({
+        oauthProvider,
+        onAuthenticateHeader: (header) => {
+          lastAuthenticateHeader = header;
+          oauthProvider?.captureAuthenticationChallenge(header);
+        },
+        serverUrl: url,
+        transportProxy: connectionOptions.transportProxy,
+      });
       const transport = new StreamableHTTPClientTransport(url, {
         ...(authProvider ? { authProvider } : {}),
-        fetch: createAuthenticationChallengeCapturingFetch({
-          oauthProvider,
-          onAuthenticateHeader: (header) => {
-            lastAuthenticateHeader = header;
-            oauthProvider?.captureAuthenticationChallenge(header);
-          },
-          serverUrl: url,
-          transportProxy: connectionOptions.transportProxy,
-        }),
+        fetch: hookFetch,
       });
       const connection = { client, transport };
       await closeCurrentConnections();
@@ -1098,7 +1130,10 @@ export function useMcp(options: UseMcpOptions): UseMcpResult {
           setState((current) => ({
             ...(preserveCatalog ? current : IDLE_STATE),
             authRequirement: oauthRequirement,
-            authDiagnostics: oauthProvider.authDiagnostics(),
+            authDiagnostics: addProxyDiagnostics(
+              oauthProvider.authDiagnostics(),
+              connectionOptions.transportProxy,
+            ),
             authorizationUrl: oauthRequirement.authorizationUrl,
             client: null,
             error: null,
@@ -1111,6 +1146,7 @@ export function useMcp(options: UseMcpOptions): UseMcpResult {
         const manualOAuthInference = await inferManualOAuthClientRequirement(
           url,
           lastAuthenticateHeader,
+          hookFetch,
         );
         if (connectionGenerationRef.current !== generation) {
           await closeConnection(connection);
@@ -1128,6 +1164,7 @@ export function useMcp(options: UseMcpOptions): UseMcpResult {
             authDiagnostics: {
               authorizationServerMetadataUrl: manualOAuthInference.authorizationServerMetadataUrl,
               issuer: manualOAuthInference.requirement.issuer,
+              ...proxyDiagnostics(connectionOptions.transportProxy),
               resourceMetadataUrl: manualOAuthInference.resourceMetadataUrl,
             },
             authorizationUrl: null,
@@ -1315,6 +1352,44 @@ export function useMcp(options: UseMcpOptions): UseMcpResult {
     [closeHookOwnedPopup],
   );
 
+  const startOAuthAuthorizationWatch = useCallback(
+    (pendingOAuthConnection: PendingOAuthConnection): void => {
+      clearOAuthAuthorizationWatch();
+
+      const popup = popupRef.current;
+      if (!popup || !popupOwnedByHookRef.current) {
+        return;
+      }
+
+      const timeoutMs = resolveOAuthAuthorizationTimeoutMs(pendingOAuthConnection.options.oauth);
+      if (timeoutMs === null) {
+        return;
+      }
+
+      oauthAuthorizationTimeoutRef.current = setTimeout(() => {
+        void failPendingOAuthConnection(
+          pendingOAuthConnection,
+          new Error("OAuth authorization callback was not received before the timeout."),
+        );
+      }, timeoutMs);
+
+      oauthPopupClosedIntervalRef.current = setInterval(
+        () => {
+          if (!popup.closed) {
+            return;
+          }
+
+          void failPendingOAuthConnection(
+            pendingOAuthConnection,
+            new Error("OAuth authorization popup closed before the callback was received."),
+          );
+        },
+        Math.min(OAUTH_POPUP_CLOSED_POLL_INTERVAL_MS, timeoutMs),
+      );
+    },
+    [clearOAuthAuthorizationWatch, failPendingOAuthConnection],
+  );
+
   const finishAuthorization = useCallback(
     async (authorizationCode: string, state: string): Promise<McpActionResult> => {
       const existingFinish = pendingOAuthFinishPromiseRef.current;
@@ -1341,6 +1416,7 @@ export function useMcp(options: UseMcpOptions): UseMcpResult {
       if (state !== expectedState) {
         return { ok: false, reason: "oauth_state_mismatch" };
       }
+      clearOAuthAuthorizationWatch();
 
       let finishPromise!: Promise<McpActionResult>;
       finishPromise = (async (): Promise<McpActionResult> => {
@@ -1405,7 +1481,7 @@ export function useMcp(options: UseMcpOptions): UseMcpResult {
       pendingOAuthFinishPromiseRef.current = finishPromise;
       return finishPromise;
     },
-    [connectWithOptions],
+    [clearOAuthAuthorizationWatch, connectWithOptions],
   );
 
   const finishOAuthCallbackMessage = useCallback(
@@ -1449,9 +1525,10 @@ export function useMcp(options: UseMcpOptions): UseMcpResult {
         return { ok: true };
       }
 
+      clearOAuthAuthorizationWatch();
       return finishAuthorization(message.code, message.state);
     },
-    [failPendingOAuthConnection, finishAuthorization],
+    [clearOAuthAuthorizationWatch, failPendingOAuthConnection, finishAuthorization],
   );
 
   const authorize = useCallback(
@@ -1486,6 +1563,9 @@ export function useMcp(options: UseMcpOptions): UseMcpResult {
 
       const popup = popupRef.current;
       if (popup && !popup.closed) {
+        if (pendingOAuthConnection) {
+          startOAuthAuthorizationWatch(pendingOAuthConnection);
+        }
         popup.focus();
         return { ok: true };
       }
@@ -1500,10 +1580,13 @@ export function useMcp(options: UseMcpOptions): UseMcpResult {
       }
       popupRef.current = openedPopup;
       popupOwnedByHookRef.current = true;
+      if (pendingOAuthConnection) {
+        startOAuthAuthorizationWatch(pendingOAuthConnection);
+      }
       openedPopup.focus();
       return { ok: true };
     },
-    [finishOAuthCallbackMessage, oauthPopupWindowName],
+    [finishOAuthCallbackMessage, oauthPopupWindowName, startOAuthAuthorizationWatch],
   );
 
   const callTool = useCallback(
@@ -1615,6 +1698,7 @@ export function useMcp(options: UseMcpOptions): UseMcpResult {
     clientOptionsKey,
     options.enabled,
     options.oauth?.clientId,
+    options.oauth?.authorizationTimeoutMs,
     oauthClientMetadataKey,
     options.oauth?.clientMetadataUrl,
     redirectUrlKey,
@@ -2073,6 +2157,29 @@ function normalizeTransportProxyUrl(transportProxy: UseMcpTransportProxy | undef
   return url;
 }
 
+function proxyDiagnostics(
+  transportProxy: UseMcpTransportProxy | undefined,
+): Pick<McpAuthDiagnostics, "proxyUrl"> {
+  const proxyUrl = normalizeTransportProxyUrl(transportProxy);
+
+  return proxyUrl ? { proxyUrl: proxyUrl.toString() } : {};
+}
+
+function addProxyDiagnostics(
+  diagnostics: McpAuthDiagnostics | null,
+  transportProxy: UseMcpTransportProxy | undefined,
+): McpAuthDiagnostics | null {
+  const proxyFields = proxyDiagnostics(transportProxy);
+  if (!proxyFields.proxyUrl) {
+    return diagnostics;
+  }
+
+  return {
+    ...diagnostics,
+    ...proxyFields,
+  };
+}
+
 async function loadCatalog(
   client: Client,
   serverCapabilities: ServerCapabilities | null,
@@ -2321,20 +2428,21 @@ function createAuthenticationChallengeCapturingFetch(input: {
   return async (url, init) => {
     const requestedUrl = new URL(url.toString());
     const transportProxyUrl = normalizeTransportProxyUrl(input.transportProxy);
-    const shouldProxyTransport =
+    const isTransportSseProbe =
       transportProxyUrl &&
       isSameUrlWithoutHash(requestedUrl, input.serverUrl) &&
-      isMcpTransportMethod(init?.method);
-    if (shouldProxyTransport && isMcpTransportSseProbe(init?.method)) {
+      isMcpTransportSseProbe(init?.method);
+    if (isTransportSseProbe) {
       return new Response("SSE is not enabled for this stateless transport proxy", {
         status: 405,
         statusText: "Method Not Allowed",
       });
     }
-    const response = await fetch(
-      shouldProxyTransport ? transportProxyUrl : requestedUrl,
-      shouldProxyTransport ? createTransportProxyInit(init, input.serverUrl) : init,
-    );
+    const response = await proxyAwareFetch({
+      init,
+      proxyUrl: transportProxyUrl,
+      targetUrl: requestedUrl,
+    });
     const requestedUrlString = requestedUrl.toString();
 
     if (response.ok && isProtectedResourceMetadataUrl(requestedUrlString)) {
@@ -2360,6 +2468,20 @@ function createAuthenticationChallengeCapturingFetch(input: {
 
     return response;
   };
+}
+
+type ProxyFetchInput = {
+  init?: RequestInit;
+  proxyUrl?: URL | null;
+  targetUrl: URL;
+};
+
+async function proxyAwareFetch(input: ProxyFetchInput): Promise<Response> {
+  if (!input.proxyUrl) {
+    return fetch(input.targetUrl, input.init);
+  }
+
+  return fetch(input.proxyUrl, createProxyInit(input.init, input.targetUrl));
 }
 
 function removeNonBearerResourceMetadataChallenge(
@@ -2395,19 +2517,13 @@ function isSameUrlWithoutHash(left: URL, right: URL): boolean {
   return normalizedLeft.toString() === normalizedRight.toString();
 }
 
-function isMcpTransportMethod(method: string | undefined): boolean {
-  const normalizedMethod = (method ?? "GET").toUpperCase();
-
-  return normalizedMethod === "DELETE" || normalizedMethod === "GET" || normalizedMethod === "POST";
-}
-
 function isMcpTransportSseProbe(method: string | undefined): boolean {
   return (method ?? "GET").toUpperCase() === "GET";
 }
 
-function createTransportProxyInit(init: RequestInit | undefined, serverUrl: URL): RequestInit {
+function createProxyInit(init: RequestInit | undefined, targetUrl: URL): RequestInit {
   const headers = new Headers(init?.headers);
-  headers.set("x-mcp-target-url", mcpTransportTargetUrl(serverUrl).toString());
+  headers.set("x-mcp-target-url", proxyTargetUrl(targetUrl).toString());
 
   return {
     ...init,
@@ -2416,8 +2532,8 @@ function createTransportProxyInit(init: RequestInit | undefined, serverUrl: URL)
   };
 }
 
-function mcpTransportTargetUrl(serverUrl: URL): URL {
-  const targetUrl = new URL(serverUrl.toString());
+function proxyTargetUrl(url: URL): URL {
+  const targetUrl = new URL(url.toString());
   targetUrl.hash = "";
 
   return targetUrl;
@@ -2617,6 +2733,7 @@ type ManualOAuthClientInference = {
 async function inferManualOAuthClientRequirement(
   serverUrl: URL,
   authenticateHeader: string | null,
+  fetchFn: FetchLike = fetch,
 ): Promise<ManualOAuthClientInference | null> {
   const resourceMetadataUrl = authenticateHeader
     ? readWwwAuthenticateParameter(authenticateHeader, "resource_metadata", "Bearer")
@@ -2626,7 +2743,7 @@ async function inferManualOAuthClientRequirement(
   }
 
   try {
-    const resourceMetadataResponse = await fetch(resourceMetadataUrl);
+    const resourceMetadataResponse = await fetchFn(new URL(resourceMetadataUrl));
     if (!resourceMetadataResponse.ok) {
       return null;
     }
@@ -2646,7 +2763,7 @@ async function inferManualOAuthClientRequirement(
     }
 
     const metadataUrl = authorizationServerMetadataUrlFor(authorizationServer);
-    const metadataResponse = await fetch(metadataUrl);
+    const metadataResponse = await fetchFn(new URL(metadataUrl));
     if (!metadataResponse.ok) {
       return null;
     }
@@ -3470,6 +3587,17 @@ function resolveOAuthRedirectUrl(
   }
 
   return new URL(redirectUrl, origin).toString();
+}
+
+function resolveOAuthAuthorizationTimeoutMs(
+  oauthOptions: UseMcpOAuthOptions | undefined,
+): number | null {
+  const timeoutMs = oauthOptions?.authorizationTimeoutMs ?? DEFAULT_OAUTH_AUTHORIZATION_TIMEOUT_MS;
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    return null;
+  }
+
+  return timeoutMs;
 }
 
 class StaticBearerAuthProvider implements OAuthClientProvider {

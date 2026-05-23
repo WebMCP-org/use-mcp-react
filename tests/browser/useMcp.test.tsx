@@ -2491,7 +2491,7 @@ describe("useMcp", () => {
     await probe.unmount();
   });
 
-  it("routes MCP transport through a proxy while keeping OAuth discovery direct", async () => {
+  it("routes MCP transport and hook-owned OAuth HTTP through a proxy", async () => {
     const server = createOAuthMcpTestServer({
       transportMode: "stateless",
     });
@@ -2501,6 +2501,7 @@ describe("useMcp", () => {
     const probe = await renderHookProbe(
       () => useMcp({ transportProxy: server.proxyUrl, url: server.mcpUrl }),
       (mcp) => ({
+        authDiagnostics: mcp.authDiagnostics,
         authorizationResource: mcp.authorizationUrl?.searchParams.get("resource"),
         status: mcp.status,
         toolNames: mcp.tools.map((tool) => tool.name),
@@ -2512,6 +2513,11 @@ describe("useMcp", () => {
     });
 
     expect(probe.result.current.authorizationUrl?.searchParams.get("resource")).toBe(server.mcpUrl);
+    expect(probe.result.current.authDiagnostics).toMatchObject({
+      authorizationServerMetadataUrl: server.authorizationServerMetadataUrl,
+      proxyUrl: server.proxyUrl,
+      resourceMetadataUrl: `${window.location.origin}/.well-known/oauth-protected-resource/mcp`,
+    });
     expect(server.requestLog).toContainEqual(
       expect.objectContaining({
         jsonRpcMethod: "initialize",
@@ -2523,18 +2529,23 @@ describe("useMcp", () => {
     );
     expect(server.requestLog).toContainEqual(
       expect.objectContaining({
-        pathname: "/.well-known/oauth-protected-resource/mcp",
+        method: "GET",
+        pathname: "/mcp-proxy",
+        proxyTargetUrl: `${window.location.origin}/.well-known/oauth-protected-resource/mcp`,
       }),
     );
     expect(server.requestLog).toContainEqual(
       expect.objectContaining({
-        pathname: "/.well-known/oauth-authorization-server",
+        method: "GET",
+        pathname: "/mcp-proxy",
+        proxyTargetUrl: server.authorizationServerMetadataUrl,
       }),
     );
     expect(server.requestLog).toContainEqual(
       expect.objectContaining({
         method: "POST",
-        pathname: "/register",
+        pathname: "/mcp-proxy",
+        proxyTargetUrl: server.registrationEndpoint,
       }),
     );
     expect(server.requestLog).not.toContainEqual(
@@ -2558,7 +2569,8 @@ describe("useMcp", () => {
       expect.objectContaining({
         grantType: "authorization_code",
         method: "POST",
-        pathname: "/token",
+        pathname: "/mcp-proxy",
+        proxyTargetUrl: server.tokenEndpoint,
         status: 200,
       }),
     );
@@ -2579,6 +2591,7 @@ describe("useMcp", () => {
       expect.objectContaining({
         method: "GET",
         pathname: "/mcp-proxy",
+        proxyTargetUrl: server.mcpUrl,
       }),
     );
     expect(server.requestLog).not.toContainEqual(
@@ -2586,9 +2599,119 @@ describe("useMcp", () => {
         pathname: "/mcp",
       }),
     );
+    expect(server.requestLog).not.toContainEqual(
+      expect.objectContaining({
+        pathname: "/authorize",
+      }),
+    );
+    expect(server.requestLog).not.toContainEqual(
+      expect.objectContaining({
+        proxyTargetUrl: server.authorizationEndpoint,
+      }),
+    );
 
     document.cookie = "mcp_proxy_secret=; max-age=0; path=/";
     await probe.result.current.client?.close();
+    await probe.unmount();
+  });
+
+  it("routes OpenID metadata fallback discovery through the proxy", async () => {
+    const mcpUrl = `${window.location.origin}/mcp-oidc-fallback`;
+    const proxyUrl = `${window.location.origin}/mcp-oidc-fallback-proxy`;
+    const resourceMetadataUrl = `${window.location.origin}/.well-known/oauth-protected-resource/oidc-fallback`;
+    const authorizationServerUrl = `${window.location.origin}/oidc-provider`;
+    const oauthMetadataUrl = `${window.location.origin}/.well-known/oauth-authorization-server/oidc-provider`;
+    const openIdMetadataUrl = `${window.location.origin}/.well-known/openid-configuration/oidc-provider`;
+    const authorizationEndpoint = `${authorizationServerUrl}/authorize`;
+    const requestLog: Array<{
+      method: string;
+      pathname: string;
+      proxyTargetUrl?: string | null;
+    }> = [];
+
+    worker.use(
+      http.all(proxyUrl, async ({ request }) => {
+        const targetUrl = request.headers.get("x-mcp-target-url");
+        requestLog.push({
+          method: request.method,
+          pathname: new URL(request.url).pathname,
+          proxyTargetUrl: targetUrl,
+        });
+
+        if (targetUrl === mcpUrl) {
+          return new Response("Unauthorized", {
+            headers: {
+              "WWW-Authenticate": `Bearer resource_metadata="${resourceMetadataUrl}", scope="mcp:tools"`,
+            },
+            status: 401,
+          });
+        }
+        if (targetUrl === resourceMetadataUrl) {
+          return HttpResponse.json({
+            resource: mcpUrl,
+            scopes_supported: ["mcp:tools"],
+            authorization_servers: [authorizationServerUrl],
+          });
+        }
+        if (targetUrl === oauthMetadataUrl) {
+          return HttpResponse.json({ error: "not_found" }, { status: 404 });
+        }
+        if (targetUrl === openIdMetadataUrl) {
+          return HttpResponse.json({
+            issuer: authorizationServerUrl,
+            authorization_endpoint: authorizationEndpoint,
+            token_endpoint: `${authorizationServerUrl}/token`,
+            jwks_uri: `${authorizationServerUrl}/jwks`,
+            response_types_supported: ["code"],
+            subject_types_supported: ["public"],
+            id_token_signing_alg_values_supported: ["RS256"],
+            code_challenge_methods_supported: ["S256"],
+            token_endpoint_auth_methods_supported: ["none"],
+          });
+        }
+
+        return new Response("Unexpected target", { status: 404 });
+      }),
+    );
+
+    const probe = await renderHookProbe(
+      () =>
+        useMcp({
+          oauth: { clientId: "oidc-public-client" },
+          transportProxy: proxyUrl,
+          url: mcpUrl,
+        }),
+      (mcp) => ({
+        authorizationPathname: mcp.authorizationUrl?.pathname,
+        status: mcp.status,
+      }),
+    );
+
+    await vi.waitFor(() => {
+      expect(probe.result.current.status).toBe("pending_auth");
+    });
+
+    expect(probe.result.current.authorizationUrl?.toString()).toContain(authorizationEndpoint);
+    expect(requestLog).toContainEqual(
+      expect.objectContaining({
+        method: "GET",
+        pathname: "/mcp-oidc-fallback-proxy",
+        proxyTargetUrl: oauthMetadataUrl,
+      }),
+    );
+    expect(requestLog).toContainEqual(
+      expect.objectContaining({
+        method: "GET",
+        pathname: "/mcp-oidc-fallback-proxy",
+        proxyTargetUrl: openIdMetadataUrl,
+      }),
+    );
+    expect(requestLog).not.toContainEqual(
+      expect.objectContaining({
+        proxyTargetUrl: authorizationEndpoint,
+      }),
+    );
+
     await probe.unmount();
   });
 
@@ -2900,6 +3023,69 @@ describe("useMcp", () => {
       expect.objectContaining({
         method: "POST",
         pathname: "/register",
+      }),
+    );
+
+    await probe.unmount();
+  });
+
+  it("routes manual OAuth client inference through the proxy", async () => {
+    const server = createOAuthMcpTestServer({
+      dynamicClientRegistration: false,
+      transportMode: "stateless",
+    });
+    worker.use(...server.handlers);
+
+    const probe = await renderHookProbe(
+      () => useMcp({ transportProxy: server.proxyUrl, url: server.mcpUrl }),
+      (mcp) => ({
+        authDiagnostics: mcp.authDiagnostics,
+        authRequirement: mcp.authRequirement,
+        status: mcp.status,
+      }),
+    );
+
+    await vi.waitFor(() => {
+      expect(probe.result.current.status).toBe("pending_auth");
+    });
+
+    expect(probe.result.current.authRequirement).toEqual({
+      authorizationEndpoint: server.authorizationEndpoint,
+      issuer: window.location.origin,
+      reason: "client_registration_unavailable",
+      suggestedFields: ["clientId"],
+      supportsClientMetadataDocument: false,
+      supportsDynamicClientRegistration: false,
+      tokenEndpoint: `${window.location.origin}/token`,
+      type: "manual_oauth_client",
+    });
+    expect(probe.result.current.authDiagnostics).toMatchObject({
+      authorizationServerMetadataUrl: server.authorizationServerMetadataUrl,
+      proxyUrl: server.proxyUrl,
+      resourceMetadataUrl: `${window.location.origin}/.well-known/oauth-protected-resource/mcp`,
+    });
+    expect(server.requestLog).toContainEqual(
+      expect.objectContaining({
+        method: "GET",
+        pathname: "/mcp-proxy",
+        proxyTargetUrl: `${window.location.origin}/.well-known/oauth-protected-resource/mcp`,
+      }),
+    );
+    expect(server.requestLog).toContainEqual(
+      expect.objectContaining({
+        method: "GET",
+        pathname: "/mcp-proxy",
+        proxyTargetUrl: server.authorizationServerMetadataUrl,
+      }),
+    );
+    expect(server.requestLog).not.toContainEqual(
+      expect.objectContaining({
+        pathname: "/.well-known/oauth-protected-resource/mcp",
+      }),
+    );
+    expect(server.requestLog).not.toContainEqual(
+      expect.objectContaining({
+        pathname: "/.well-known/oauth-authorization-server",
       }),
     );
 
@@ -4119,6 +4305,56 @@ describe("useMcp", () => {
           entry.grantType === "refresh_token",
       ),
     ).toHaveLength(1);
+
+    await probe.result.current.client?.close();
+    await probe.unmount();
+  });
+
+  it("refreshes OAuth tokens through the proxy when configured", async () => {
+    const server = createOAuthMcpTestServer({
+      transportMode: "stateless",
+    });
+    worker.use(...server.handlers);
+
+    const probe = await renderHookProbe(
+      () => useMcp({ transportProxy: server.proxyUrl, url: server.mcpUrl }),
+      (mcp) => ({
+        status: mcp.status,
+      }),
+    );
+
+    await vi.waitFor(() => {
+      expect(probe.result.current.status).toBe("pending_auth");
+    });
+
+    const authorizationUrl = probe.result.current.authorizationUrl!;
+    const code = server.authorize(authorizationUrl);
+    await probe.act(() =>
+      probe.result.current.finishAuthorization(code, authorizationUrl.searchParams.get("state")!),
+    );
+
+    await vi.waitFor(() => {
+      expect(probe.result.current.status).toBe("ready");
+    });
+
+    server.expireAccessTokens();
+    await expect(probe.result.current.client!.ping()).resolves.toEqual({});
+
+    expect(
+      server.requestLog.filter(
+        (entry) =>
+          entry.grantType === "refresh_token" &&
+          entry.method === "POST" &&
+          entry.pathname === "/mcp-proxy" &&
+          entry.proxyTargetUrl === server.tokenEndpoint,
+      ),
+    ).toHaveLength(1);
+    expect(server.requestLog).not.toContainEqual(
+      expect.objectContaining({
+        grantType: "refresh_token",
+        pathname: "/token",
+      }),
+    );
 
     await probe.result.current.client?.close();
     await probe.unmount();

@@ -1,19 +1,19 @@
 # Transport Proxy Mode
 
-Transport proxy mode is for MCP servers whose OAuth and discovery endpoints work in the browser, but whose MCP transport endpoint does not expose CORS for ordinary page JavaScript.
+Transport proxy mode is for MCP servers whose transport or OAuth background HTTP endpoints do not expose browser CORS for ordinary page JavaScript.
 
 The browser remains the OAuth client:
 
-- Protected Resource Metadata discovery
-- Authorization Server Metadata discovery
-- Dynamic Client Registration
+- Protected Resource Metadata discovery, via the proxy when configured
+- Authorization Server Metadata discovery, via the proxy when configured
+- Dynamic Client Registration, via the proxy when configured
 - PKCE state and verifier handling
-- authorization redirect or popup
-- token exchange and refresh
+- authorization redirect or popup, always opened directly to the provider
+- token exchange and refresh, via the proxy when configured
 - token storage
 - `Authorization: Bearer ...` on MCP requests
 
-The proxy is app-owned plumbing. In the playground it forwards stateless MCP transport requests in the direction selected by the UI, while the browser still owns OAuth and all MCP client behavior.
+The proxy is app-owned plumbing. In the playground it forwards hook-owned MCP transport and OAuth HTTP requests in the direction selected by the UI, while the browser still owns OAuth state, tokens, PKCE, and MCP client behavior.
 
 The repository playground includes a concrete proxy server route implementation:
 
@@ -36,7 +36,7 @@ The proxy URL is app-owned configuration. It may be a same-origin route or an ab
 
 ## Request Shape
 
-The hook rewrites only requests whose URL exactly matches the logical MCP endpoint, ignoring the URL hash. OAuth metadata, registration, token, and refresh requests stay direct.
+The hook rewrites hook-owned background HTTP to the configured proxy. `x-mcp-target-url` carries the real upstream URL, and diagnostics keep reporting the upstream metadata/token URL separately from the proxy URL.
 
 ```txt
 POST https://proxy.example.com/mcp-proxy
@@ -47,7 +47,15 @@ accept: application/json, text/event-stream
 mcp-protocol-version: 2025-11-25
 ```
 
-The playground proxy forwards whatever request the hook sends to the configured target. In normal use that means MCP transport `POST`s, because the hook handles stateless proxy mode before an SSE `GET` reaches the Worker.
+OAuth metadata discovery uses the same shape with the upstream metadata endpoint as the target:
+
+```txt
+GET https://proxy.example.com/mcp-proxy
+x-mcp-target-url: https://mcp.airtable.com/.well-known/oauth-authorization-server
+accept: application/json
+```
+
+Dynamic registration and token requests are also proxied when `transportProxy` is configured. The hook still handles stateless proxy mode before the optional MCP transport SSE `GET` reaches the Worker, so normal stateless MCP traffic is `POST`/`DELETE` plus OAuth `GET`/`POST` requests.
 
 ## Loose Demo Proxy
 
@@ -63,10 +71,13 @@ export async function handleMcpProxy(request: Request): Promise<Response> {
   }
 
   const upstreamUrl = new URL(target);
+  const headers = new Headers(request.headers);
+  headers.delete("x-mcp-target-url");
+
   const upstreamResponse = await fetch(upstreamUrl, {
     method: request.method,
-    headers: request.headers,
-    body: request.body,
+    headers,
+    body: request.method === "GET" || request.method === "HEAD" ? undefined : request.body,
     redirect: "manual",
     signal: AbortSignal.timeout(30_000),
   });
@@ -81,11 +92,18 @@ Some runtimes require `duplex: "half"` when forwarding a streaming request body.
 
 If this becomes production infrastructure, choose the policy you actually want instead of copying the demo route blindly:
 
-- Whitelist the MCP servers your app supports.
-- Or run the MCP TypeScript SDK server-side and validate requests and responses as MCP traffic before forwarding.
-- Or keep a dynamic proxy, but add the normal controls for your runtime: target policy, DNS/private-network checks, redirect policy, request and response size limits, timeout handling, and logging that never records bearer tokens.
+- Require `https:` target URLs in production.
+- Reject credentials embedded in target URLs.
+- Reject loopback, private, link-local, multicast, and other non-public IP ranges after DNS resolution when your runtime exposes that information.
+- Forward common MCP and OAuth methods: `GET`, `POST`, `DELETE`, `OPTIONS`, and `HEAD`.
+- Forward request bodies unchanged.
+- Forward only headers needed by MCP and OAuth, such as `accept`, `authorization`, `content-type`, `last-event-id`, `mcp-protocol-version`, `mcp-session-id`, and OAuth endpoint-specific headers.
+- Expose response headers the browser needs, including `www-authenticate`, `mcp-session-id`, `mcp-protocol-version`, and `location` if you ever follow redirects manually.
+- Add redirect policy, request and response size limits, timeout handling, and logging that never records bearer tokens.
 
-The hook already omits browser cookies when it sends requests to the proxy. A production proxy should also avoid forwarding any headers that are not needed by MCP transport.
+Provider allowlists are optional product policy, not a protocol requirement. A dynamic MCP proxy should be blocklist-oriented enough to support arbitrary public HTTPS MCP providers.
+
+The hook already omits browser cookies when it sends requests to the proxy. A production proxy should also avoid forwarding any headers that are not needed by MCP or OAuth.
 
 Although the browser owns OAuth, the proxy still sees bearer tokens in transit. Treat it as trusted infrastructure.
 

@@ -428,38 +428,235 @@ export function createOAuthMcpTestServer(
       return response;
     }
 
-    if (targetUrl !== mcpUrl) {
+    const normalizedTargetUrl = normalizeUrlWithoutHash(targetUrl);
+    if (!normalizedTargetUrl) {
       const logEntry = logRequest(request, logOverrides);
-      const response = new Response("Target not allowed", { status: 403 });
+      const response = new Response("Invalid x-mcp-target-url", { status: 400 });
       logResponse(logEntry, response);
 
       return response;
     }
 
-    if (request.method === "GET") {
-      const logEntry = logRequest(request, logOverrides);
-      const response = new Response("SSE not enabled for this proxy", { status: 405 });
+    const upstreamRequest = await createProxyUpstreamRequest(normalizedTargetUrl, request);
+
+    if (normalizedTargetUrl === mcpUrl) {
+      return handleMcpRequest(upstreamRequest, logOverrides);
+    }
+    if (normalizedTargetUrl === protectedResourceMetadataUrl) {
+      return handleProtectedResourceMetadataRequest(upstreamRequest, logOverrides);
+    }
+    if (normalizedTargetUrl === authorizationServerMetadataUrl) {
+      return handleAuthorizationServerMetadataRequest(upstreamRequest, logOverrides);
+    }
+    if (normalizedTargetUrl === registrationEndpoint) {
+      return handleRegistrationRequest(upstreamRequest, logOverrides);
+    }
+    if (normalizedTargetUrl === tokenEndpoint) {
+      return handleTokenRequest(upstreamRequest, logOverrides);
+    }
+
+    const logEntry = logRequest(request, logOverrides);
+    const response = new Response("Target not found", { status: 404 });
+    logResponse(logEntry, response);
+
+    return response;
+  }
+
+  async function createProxyUpstreamRequest(targetUrl: string, request: Request): Promise<Request> {
+    const headers = new Headers(request.headers);
+    headers.delete("x-mcp-target-url");
+
+    return new Request(targetUrl, {
+      ...(request.method === "GET" || request.method === "HEAD"
+        ? {}
+        : { body: await request.clone().arrayBuffer() }),
+      headers,
+      method: request.method,
+    });
+  }
+
+  function normalizeUrlWithoutHash(value: string): string | null {
+    try {
+      const url = new URL(value);
+      url.hash = "";
+
+      return url.toString();
+    } catch {
+      return null;
+    }
+  }
+
+  async function handleProtectedResourceMetadataRequest(
+    request: Request,
+    logOverrides: Partial<Pick<RequestLogEntry, "pathname" | "proxyTargetUrl">> = {},
+  ): Promise<Response> {
+    const logEntry = logRequest(request, logOverrides);
+    const response = await delayedJson({
+      bearer_methods_supported: ["header"],
+      resource: protectedResource,
+      resource_name: "MSW OAuth MCP test server",
+      scopes_supported: ["mcp:tools"],
+      authorization_servers: [authorizationServerUrl],
+    });
+    logResponse(logEntry, response);
+
+    return response;
+  }
+
+  async function handleAuthorizationServerMetadataRequest(
+    request: Request,
+    logOverrides: Partial<Pick<RequestLogEntry, "pathname" | "proxyTargetUrl">> = {},
+  ): Promise<Response> {
+    const logEntry = logRequest(request, logOverrides);
+    const response = await delayedJson({
+      issuer: authorizationServerUrl,
+      authorization_endpoint: authorizationEndpoint,
+      token_endpoint: tokenEndpoint,
+      ...(dynamicClientRegistration ? { registration_endpoint: registrationEndpoint } : {}),
+      response_types_supported: ["code"],
+      grant_types_supported: ["authorization_code", "refresh_token"],
+      code_challenge_methods_supported: ["S256"],
+      token_endpoint_auth_methods_supported: ["none"],
+      scopes_supported: ["mcp:tools"],
+      ...(clientMetadataDocument ? { client_id_metadata_document_supported: true } : {}),
+    });
+    logResponse(logEntry, response);
+
+    return response;
+  }
+
+  async function handleRegistrationRequest(
+    request: Request,
+    logOverrides: Partial<Pick<RequestLogEntry, "pathname" | "proxyTargetUrl">> = {},
+  ): Promise<Response> {
+    const logEntry = logRequest(request, logOverrides);
+
+    await nextResponseDelay();
+    if (!dynamicClientRegistration) {
+      const response = HttpResponse.json({ error: "registration_not_supported" }, { status: 404 });
       logResponse(logEntry, response);
 
       return response;
     }
 
-    if (request.method !== "POST") {
-      const logEntry = logRequest(request, logOverrides);
-      const response = new Response("Method not allowed", { status: 405 });
+    const metadata = parseClientMetadata(await request.json().catch(() => null));
+    if (!metadata) {
+      const response = HttpResponse.json({ error: "invalid_client_metadata" }, { status: 400 });
       logResponse(logEntry, response);
 
       return response;
     }
 
-    return handleMcpRequest(
-      new Request(targetUrl, {
-        body: await request.text(),
-        headers: request.headers,
-        method: request.method,
-      }),
-      logOverrides,
+    const response = HttpResponse.json(registerClient(metadata), {
+      status: 201,
+    });
+    logResponse(logEntry, response);
+
+    return response;
+  }
+
+  async function handleAuthorizationRequest(request: Request): Promise<Response> {
+    logRequest(request);
+    await nextResponseDelay();
+
+    return HttpResponse.json({ error: "Tests should capture this URL instead of navigating." });
+  }
+
+  async function handleTokenRequest(
+    request: Request,
+    logOverrides: Partial<Pick<RequestLogEntry, "pathname" | "proxyTargetUrl">> = {},
+  ): Promise<Response> {
+    await nextResponseDelay();
+    const logEntry = logRequest(request, logOverrides);
+
+    const body = await request.formData();
+    const grantType = stringFormValue(body, "grant_type");
+    logEntry.grantType = grantType;
+    if (grantType === "refresh_token") {
+      const refreshToken = stringFormValue(body, "refresh_token");
+      const clientId = stringFormValue(body, "client_id");
+      const resource = stringFormValue(body, "resource");
+      logEntry.resource = resource;
+      const savedRefreshToken = refreshTokens.get(refreshToken);
+
+      if (
+        !savedRefreshToken ||
+        savedRefreshToken.clientId !== clientId ||
+        savedRefreshToken.resource !== resource
+      ) {
+        const response = HttpResponse.json({ error: "invalid_grant" }, { status: 400 });
+        logResponse(logEntry, response);
+
+        return response;
+      }
+
+      const accessToken = issueAccessToken(
+        savedRefreshToken.clientId,
+        savedRefreshToken.resource,
+        savedRefreshToken.scope,
+      );
+      const response = HttpResponse.json({
+        access_token: accessToken,
+        token_type: "Bearer",
+        expires_in: 3600,
+        refresh_token: savedRefreshToken.token,
+        scope: savedRefreshToken.scope,
+      });
+      logResponse(logEntry, response);
+
+      return response;
+    }
+
+    const code = stringFormValue(body, "code");
+    const clientId = stringFormValue(body, "client_id");
+    const redirectUri = stringFormValue(body, "redirect_uri");
+    const codeVerifier = stringFormValue(body, "code_verifier");
+    const resource = stringFormValue(body, "resource");
+    logEntry.resource = resource;
+    const authorizationCode = authorizationCodes.get(code);
+    const isValidPkceChallenge =
+      authorizationCode &&
+      (await createS256CodeChallenge(codeVerifier)) === authorizationCode.codeChallenge;
+
+    if (grantType !== "authorization_code") {
+      const response = HttpResponse.json({ error: "unsupported_grant_type" }, { status: 400 });
+      logResponse(logEntry, response);
+
+      return response;
+    }
+
+    if (
+      !authorizationCode ||
+      authorizationCode.clientId !== clientId ||
+      authorizationCode.redirectUri !== redirectUri ||
+      authorizationCode.resource !== resource ||
+      !isValidPkceChallenge
+    ) {
+      const response = HttpResponse.json({ error: "invalid_grant" }, { status: 400 });
+      logResponse(logEntry, response);
+
+      return response;
+    }
+
+    authorizationCodes.delete(code);
+
+    const token = issueAccessToken(clientId, authorizationCode.resource, authorizationCode.scope);
+    const refreshToken = issueRefreshToken(
+      clientId,
+      authorizationCode.resource,
+      authorizationCode.scope,
     );
+
+    const response = HttpResponse.json({
+      access_token: token,
+      token_type: "Bearer",
+      expires_in: 3600,
+      refresh_token: refreshToken,
+      scope: authorizationCode.scope,
+    });
+    logResponse(logEntry, response);
+
+    return response;
   }
 
   async function captureJsonRpcMethod(request: Request, logEntry: RequestLogEntry): Promise<void> {
@@ -780,149 +977,15 @@ export function createOAuthMcpTestServer(
   const handlers = [
     http.all(proxyUrl, ({ request }) => handleProxyRequest(request)),
     http.all(mcpUrl, ({ request }) => handleMcpRequest(request)),
-    http.get(protectedResourceMetadataUrl, ({ request }) => {
-      logRequest(request);
-
-      return delayedJson({
-        bearer_methods_supported: ["header"],
-        resource: protectedResource,
-        resource_name: "MSW OAuth MCP test server",
-        scopes_supported: ["mcp:tools"],
-        authorization_servers: [authorizationServerUrl],
-      });
-    }),
-    http.get(authorizationServerMetadataUrl, ({ request }) => {
-      logRequest(request);
-
-      return delayedJson({
-        issuer: authorizationServerUrl,
-        authorization_endpoint: authorizationEndpoint,
-        token_endpoint: tokenEndpoint,
-        ...(dynamicClientRegistration ? { registration_endpoint: registrationEndpoint } : {}),
-        response_types_supported: ["code"],
-        grant_types_supported: ["authorization_code", "refresh_token"],
-        code_challenge_methods_supported: ["S256"],
-        token_endpoint_auth_methods_supported: ["none"],
-        scopes_supported: ["mcp:tools"],
-        ...(clientMetadataDocument ? { client_id_metadata_document_supported: true } : {}),
-      });
-    }),
-    http.post(registrationEndpoint, async ({ request }) => {
-      logRequest(request);
-
-      await nextResponseDelay();
-      if (!dynamicClientRegistration) {
-        return HttpResponse.json({ error: "registration_not_supported" }, { status: 404 });
-      }
-
-      const metadata = parseClientMetadata(await request.json().catch(() => null));
-      if (!metadata) {
-        return HttpResponse.json({ error: "invalid_client_metadata" }, { status: 400 });
-      }
-
-      return HttpResponse.json(registerClient(metadata), {
-        status: 201,
-      });
-    }),
-    http.get(authorizationEndpoint, async ({ request }) => {
-      logRequest(request);
-      await nextResponseDelay();
-
-      return HttpResponse.json({ error: "Tests should capture this URL instead of navigating." });
-    }),
-    http.post(tokenEndpoint, async ({ request }) => {
-      await nextResponseDelay();
-      const logEntry = logRequest(request);
-
-      const body = await request.formData();
-      const grantType = stringFormValue(body, "grant_type");
-      logEntry.grantType = grantType;
-      if (grantType === "refresh_token") {
-        const refreshToken = stringFormValue(body, "refresh_token");
-        const clientId = stringFormValue(body, "client_id");
-        const resource = stringFormValue(body, "resource");
-        logEntry.resource = resource;
-        const savedRefreshToken = refreshTokens.get(refreshToken);
-
-        if (
-          !savedRefreshToken ||
-          savedRefreshToken.clientId !== clientId ||
-          savedRefreshToken.resource !== resource
-        ) {
-          const response = HttpResponse.json({ error: "invalid_grant" }, { status: 400 });
-          logResponse(logEntry, response);
-
-          return response;
-        }
-
-        const accessToken = issueAccessToken(
-          savedRefreshToken.clientId,
-          savedRefreshToken.resource,
-          savedRefreshToken.scope,
-        );
-        const response = HttpResponse.json({
-          access_token: accessToken,
-          token_type: "Bearer",
-          expires_in: 3600,
-          refresh_token: savedRefreshToken.token,
-          scope: savedRefreshToken.scope,
-        });
-        logResponse(logEntry, response);
-
-        return response;
-      }
-
-      const code = stringFormValue(body, "code");
-      const clientId = stringFormValue(body, "client_id");
-      const redirectUri = stringFormValue(body, "redirect_uri");
-      const codeVerifier = stringFormValue(body, "code_verifier");
-      const resource = stringFormValue(body, "resource");
-      logEntry.resource = resource;
-      const authorizationCode = authorizationCodes.get(code);
-      const isValidPkceChallenge =
-        authorizationCode &&
-        (await createS256CodeChallenge(codeVerifier)) === authorizationCode.codeChallenge;
-
-      if (grantType !== "authorization_code") {
-        const response = HttpResponse.json({ error: "unsupported_grant_type" }, { status: 400 });
-        logResponse(logEntry, response);
-
-        return response;
-      }
-
-      if (
-        !authorizationCode ||
-        authorizationCode.clientId !== clientId ||
-        authorizationCode.redirectUri !== redirectUri ||
-        authorizationCode.resource !== resource ||
-        !isValidPkceChallenge
-      ) {
-        const response = HttpResponse.json({ error: "invalid_grant" }, { status: 400 });
-        logResponse(logEntry, response);
-
-        return response;
-      }
-
-      authorizationCodes.delete(code);
-
-      const token = issueAccessToken(clientId, authorizationCode.resource, authorizationCode.scope);
-      const refreshToken = issueRefreshToken(
-        clientId,
-        authorizationCode.resource,
-        authorizationCode.scope,
-      );
-
-      const response = HttpResponse.json({
-        access_token: token,
-        token_type: "Bearer",
-        expires_in: 3600,
-        refresh_token: refreshToken,
-        scope: authorizationCode.scope,
-      });
-      logResponse(logEntry, response);
-
-      return response;
-    }),
+    http.get(protectedResourceMetadataUrl, ({ request }) =>
+      handleProtectedResourceMetadataRequest(request),
+    ),
+    http.get(authorizationServerMetadataUrl, ({ request }) =>
+      handleAuthorizationServerMetadataRequest(request),
+    ),
+    http.post(registrationEndpoint, ({ request }) => handleRegistrationRequest(request)),
+    http.get(authorizationEndpoint, ({ request }) => handleAuthorizationRequest(request)),
+    http.post(tokenEndpoint, ({ request }) => handleTokenRequest(request)),
   ];
 
   function delayedJson(
