@@ -1,5 +1,12 @@
 # use-mcp-react
 
+## 0.4.2
+
+### Patch Changes
+
+- Route hook-owned MCP OAuth discovery, dynamic registration, token exchange, and refresh requests through `transportProxy` while keeping authorization navigation direct.
+- Update the `ws` dependency lockfile entry from 8.18.0 to 8.20.1.
+
 ## 0.4.1
 
 ### Patch Changes
