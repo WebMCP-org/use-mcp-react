@@ -3128,6 +3128,16 @@ function parseStoredDiscoveryState(value: unknown): OAuthDiscoveryState | undefi
   return value as unknown as OAuthDiscoveryState;
 }
 
+function isInvalidStoredOAuthDiscoveryState(state: OAuthDiscoveryState): boolean {
+  try {
+    const authorizationServerUrl = new URL(state.authorizationServerUrl);
+
+    return authorizationServerUrl.pathname.includes("/.well-known/");
+  } catch {
+    return true;
+  }
+}
+
 function parseStoredString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
@@ -3330,6 +3340,11 @@ class PendingOAuthProvider implements OAuthClientProvider {
       this.storageKeys.discovery,
       parseStoredDiscoveryState,
     );
+    if (this.savedDiscoveryState && isInvalidStoredOAuthDiscoveryState(this.savedDiscoveryState)) {
+      this.savedDiscoveryState = undefined;
+      await this.storage?.removeItem(this.storageKeys.discovery);
+    }
+
     return this.savedDiscoveryState;
   }
 

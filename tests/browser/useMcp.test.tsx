@@ -2299,6 +2299,90 @@ describe("useMcp", () => {
     await probe.unmount();
   });
 
+  it("recovers when cached OAuth discovery points at protected resource metadata", async () => {
+    const server = createOAuthMcpTestServer({
+      transportMode: "stateless",
+    });
+    const resourceMetadataUrl = `${window.location.origin}/.well-known/oauth-protected-resource/mcp`;
+    const staleDiscovery = JSON.stringify({
+      authorizationServerUrl: resourceMetadataUrl,
+      resourceMetadata: {
+        authorization_servers: [server.authorizationServerUrl],
+        bearer_methods_supported: ["header"],
+        resource: server.mcpUrl,
+      },
+      resourceMetadataUrl,
+    });
+    const removedKeys = new Set<string>();
+    const removedDiscoveryKeys: string[] = [];
+    const storageValues = new Map<string, string>();
+    const storage = {
+      async getItem(key: string) {
+        if (storageValues.has(key)) {
+          return storageValues.get(key) ?? null;
+        }
+
+        return key.endsWith(":discovery") && !removedKeys.has(key) ? staleDiscovery : null;
+      },
+      async removeItem(key: string) {
+        removedKeys.add(key);
+        if (key.endsWith(":discovery")) {
+          removedDiscoveryKeys.push(key);
+        }
+        storageValues.delete(key);
+      },
+      async setItem(key: string, value: string) {
+        removedKeys.delete(key);
+        storageValues.set(key, value);
+      },
+    };
+    worker.use(
+      ...server.handlers,
+      http.get(
+        `${window.location.origin}/.well-known/oauth-authorization-server/.well-known/oauth-protected-resource/mcp`,
+        () => new Response("Not found", { status: 404 }),
+      ),
+      http.get(
+        `${window.location.origin}/.well-known/openid-configuration/.well-known/oauth-protected-resource/mcp`,
+        () => new Response("Not found", { status: 404 }),
+      ),
+      http.get(`${resourceMetadataUrl}/.well-known/openid-configuration`, () =>
+        HttpResponse.json({
+          authorization_servers: [server.authorizationServerUrl],
+          bearer_methods_supported: ["header"],
+          resource: `${server.mcpUrl}/.well-known/openid-configuration`,
+        }),
+      ),
+    );
+
+    const probe = await renderHookProbe(
+      () => useMcp({ storage, url: server.mcpUrl }),
+      (mcp) => ({
+        authDiagnostics: mcp.authDiagnostics,
+        authRequirement: mcp.authRequirement,
+        errorMessage: mcp.error?.message,
+        status: mcp.status,
+      }),
+    );
+
+    await vi.waitFor(() => {
+      expect(probe.result.current.status).toBe("pending_auth");
+    });
+
+    expect(probe.result.current.error).toBeNull();
+    expect(probe.result.current.authRequirement).toMatchObject({
+      issuer: server.authorizationServerUrl,
+      type: "oauth",
+    });
+    expect(probe.result.current.authDiagnostics).toMatchObject({
+      authorizationServerMetadataUrl: server.authorizationServerMetadataUrl,
+      resourceMetadataUrl,
+    });
+    expect(removedDiscoveryKeys).toHaveLength(1);
+
+    await probe.unmount();
+  });
+
   it("uses the Firefox WebExtension identity API when it is available", async () => {
     const server = createOAuthMcpTestServer({
       transportMode: "stateless",
