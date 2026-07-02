@@ -19,6 +19,7 @@ import type {
   OAuthProtectedResourceMetadata,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
 import type { FetchLike } from "@modelcontextprotocol/sdk/shared/transport.js";
+import { CfWorkerJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/cfworker-provider.js";
 import type {
   CallToolRequest,
   ClientCapabilities,
@@ -248,6 +249,38 @@ export type McpStorage = {
   removeItem(key: string): Promise<void>;
   setItem(key: string, value: string): Promise<void>;
 };
+
+export type McpOAuthProvider = OAuthClientProvider & {
+  authUrl: string | undefined;
+  clientId: string | undefined;
+  serverId: string | undefined;
+  checkState(state: string): Promise<{ valid: boolean; serverId?: string; error?: string }>;
+  consumeState(state: string): Promise<void>;
+  deleteCodeVerifier(): Promise<void>;
+  runWithCodeVerifierState?<T>(state: string, callback: () => Promise<T>): Promise<T>;
+};
+
+export type CreateMcpOAuthProviderOptions = {
+  oauth?: UseMcpOAuthOptions;
+  serverId?: string;
+  storage?: McpStorage | false;
+  url: URL | string;
+};
+
+export function createMcpOAuthProvider({
+  oauth,
+  serverId,
+  storage,
+  url,
+}: CreateMcpOAuthProviderOptions): McpOAuthProvider {
+  const provider = new StoredMcpOAuthProvider(
+    new URL(url.toString()),
+    oauth,
+    resolveMcpStorage(storage),
+  );
+  provider.serverId = serverId;
+  return provider;
+}
 
 /**
  * Configuration for one `useMcp` hook instance.
@@ -650,7 +683,8 @@ const RECONNECT_STATUS_PAINT_DELAY_MS = 80;
 const AUTHENTICATING_STATUS_PAINT_DELAY_MS = 80;
 const DEFAULT_OAUTH_AUTHORIZATION_TIMEOUT_MS = 5 * 60 * 1_000;
 const OAUTH_POPUP_CLOSED_POLL_INTERVAL_MS = 500;
-const OAUTH_POPUP_CLOSED_CALLBACK_GRACE_PERIOD_MS = 1_500;
+// Callback delivery can lag popup closure when the opener tab is busy or throttled.
+const OAUTH_POPUP_CLOSED_CALLBACK_GRACE_PERIOD_MS = 30_000;
 const MCP_CLIENT_VERSION = packageJson.version;
 
 type Connection = {
@@ -1801,12 +1835,9 @@ function createClientOptions(connectionOptions: UseMcpActionOptions): ClientOpti
     connectionOptions.clientCapabilities,
   );
 
-  if (!clientOptions && !capabilities) {
-    return undefined;
-  }
-
   return {
     ...clientOptions,
+    jsonSchemaValidator: clientOptions?.jsonSchemaValidator ?? new CfWorkerJsonSchemaValidator(),
     ...(capabilities ? { capabilities } : {}),
   };
 }
@@ -3193,6 +3224,7 @@ class PendingOAuthProvider implements OAuthClientProvider {
   private parsedResourceMetadataUrlFromChallenge: string | undefined;
   private savedTokens: OAuthTokens | undefined;
   private savedDiscoveryState: OAuthDiscoveryState | undefined;
+  private storedServerId: string | undefined;
   private readonly storage: McpStorage | null;
   private readonly storageKeys: OAuthStorageKeys;
   private target: AuthorizationTarget | null = null;
@@ -3234,6 +3266,30 @@ class PendingOAuthProvider implements OAuthClientProvider {
       clientMetadataUrl: this.clientMetadataUrl,
       redirectUrl: this.redirectUrl,
     });
+  }
+
+  get authUrl(): string | undefined {
+    return this.authorizationUrl?.toString();
+  }
+
+  get clientId(): string | undefined {
+    return this.client?.client_id;
+  }
+
+  set clientId(clientId: string | undefined) {
+    if (!clientId) {
+      this.client = undefined;
+      return;
+    }
+    this.client = { ...this.client, client_id: clientId };
+  }
+
+  get serverId(): string | undefined {
+    return this.storedServerId;
+  }
+
+  set serverId(serverId: string | undefined) {
+    this.storedServerId = serverId;
   }
 
   authRequirement(): Extract<McpAuthRequirement, { type: "oauth" }> | null {
@@ -3490,6 +3546,49 @@ class PendingOAuthProvider implements OAuthClientProvider {
       this.savedDiscoveryState?.authorizationServerUrl ??
       this.authorizationUrl?.origin
     );
+  }
+}
+
+class StoredMcpOAuthProvider extends PendingOAuthProvider implements McpOAuthProvider {
+  private inMemoryState: string | undefined;
+  private inMemoryVerifier: string | undefined;
+
+  override async state(): Promise<string> {
+    const nonce = crypto.randomUUID();
+    this.inMemoryState = this.serverId ? `${nonce}.${this.serverId}` : nonce;
+    return this.inMemoryState;
+  }
+
+  override async saveCodeVerifier(codeVerifier: string): Promise<void> {
+    this.inMemoryVerifier = codeVerifier;
+  }
+
+  override async codeVerifier(): Promise<string> {
+    if (!this.inMemoryVerifier) {
+      throw new Error("No OAuth PKCE verifier saved.");
+    }
+    return this.inMemoryVerifier;
+  }
+
+  async checkState(state: string): Promise<{ valid: boolean; serverId?: string; error?: string }> {
+    if (state !== this.inMemoryState) {
+      return { valid: false, error: "Invalid state" };
+    }
+    return { valid: true, serverId: this.serverId };
+  }
+
+  async consumeState(state: string): Promise<void> {
+    if (state === this.inMemoryState) {
+      this.inMemoryState = undefined;
+    }
+  }
+
+  async deleteCodeVerifier(): Promise<void> {
+    this.inMemoryVerifier = undefined;
+  }
+
+  runWithCodeVerifierState<T>(_state: string, callback: () => Promise<T>): Promise<T> {
+    return callback();
   }
 }
 

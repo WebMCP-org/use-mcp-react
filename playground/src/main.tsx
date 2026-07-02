@@ -338,6 +338,7 @@ function PlaygroundPage() {
       setDraft((current) => ({ ...current, authMode: "manual-oauth", clientId: trimmed }));
       reconnect({
         oauth: {
+          authorizationTimeoutMs: 0,
           clientId: trimmed,
           clientMetadata: defaultClientMetadata(draft.redirectUrl, draft.scope.trim()),
           redirectUrl: draft.redirectUrl,
@@ -2004,7 +2005,10 @@ function createConnectionOptions(draft: ConnectionDraft, resolvedUrl: string): U
       : {}),
     clientCapabilities: createMcpAppClientCapabilities(),
     enabled: Boolean(resolvedUrl),
-    ...(oauth ? { oauth } : {}),
+    oauth: {
+      authorizationTimeoutMs: 0,
+      ...oauth,
+    },
     ...appOwnedTransportProxyOptions(resolvedUrl, draft.proxyEnabled),
     url: resolvedUrl || null,
   };

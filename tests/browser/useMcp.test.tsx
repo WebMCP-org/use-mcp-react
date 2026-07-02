@@ -3515,7 +3515,7 @@ describe("useMcp", () => {
       popupClosed = true;
 
       await new Promise<void>((resolve) => {
-        window.setTimeout(resolve, 650);
+        window.setTimeout(resolve, 1_750);
       });
 
       const channel = new BroadcastChannel(MCP_OAUTH_CALLBACK_CHANNEL);

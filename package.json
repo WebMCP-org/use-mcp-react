@@ -57,6 +57,7 @@
     "test:extension": "node tests/extension/build-extension.mjs && node --test tests/extension/chrome-identity.e2e.test.mjs"
   },
   "dependencies": {
+    "@cfworker/json-schema": "^4.1.1",
     "@modelcontextprotocol/sdk": "^1.29.0"
   },
   "devDependencies": {
