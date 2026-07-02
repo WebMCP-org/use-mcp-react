@@ -1,5 +1,11 @@
 # use-mcp-react
 
+## 0.4.3
+
+### Patch Changes
+
+- d6c5f14: Allow slower OAuth callback delivery after a hook-owned popup closes before reporting cancellation.
+
 ## 0.4.2
 
 ### Patch Changes
